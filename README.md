@@ -16,9 +16,9 @@ Claude will query your Mist infrastructure and give you the answers directly.
 
 ## Installation
 
-### Step 1: Add to your `.env` file
+### Step 1: Add your token to `.env`
 
-Add your Mist API token to your project's `.env` file:
+Add to your project's `.env` file:
 
 ```
 MIST_API_TOKEN=your_token_here
@@ -34,6 +34,7 @@ Add this to your project's `.mcp.json`:
     "juniper-mist": {
       "command": "uvx",
       "args": [
+        "--env-file", ".env",
         "--from",
         "git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp",
         "juniper-mist-mcp"
@@ -43,28 +44,11 @@ Add this to your project's `.mcp.json`:
 }
 ```
 
-That's it! The server will automatically read `MIST_API_TOKEN` from your `.env` file.
+That's it! The `--env-file .env` flag tells uvx to load your token from the `.env` file.
 
-### Alternative: Using `pip install`
+### Alternative: Token directly in mcp.json
 
-```bash
-pip install git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp
-```
-
-Then in `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "juniper-mist": {
-      "command": "juniper-mist-mcp"
-    }
-  }
-}
-```
-
-### Alternative: Token in mcp.json
-
-If you prefer to specify the token directly in mcp.json:
+If you prefer not to use a `.env` file:
 
 ```json
 {
