@@ -12,13 +12,20 @@ License: MIT
 
 import os
 import json
+from pathlib import Path
 from typing import Literal, Optional, Any
 from mcp.server.fastmcp import FastMCP
 import httpx
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from multiple locations (in order of priority):
+# 1. ~/.config/juniper-mist-mcp/.env (user config directory)
+# 2. Current working directory .env
+config_dir = Path.home() / ".config" / "juniper-mist-mcp"
+config_env_file = config_dir / ".env"
+if config_env_file.exists():
+    load_dotenv(config_env_file)
+load_dotenv()  # Also check current directory
 
 # Initialize MCP server
 mcp = FastMCP("Juniper Mist")
@@ -30,7 +37,9 @@ MIST_ORG_ID = os.getenv("MIST_ORG_ID")  # Optional default org
 
 if not MIST_API_TOKEN:
     raise ValueError(
-        "MIST_API_TOKEN environment variable is required. "
+        "MIST_API_TOKEN not found. Set it by either:\n"
+        "1. Creating ~/.config/juniper-mist-mcp/.env with: MIST_API_TOKEN=your_token\n"
+        "2. Setting MIST_API_TOKEN in your mcp.json env section\n"
         "Get your token from: https://manage.mist.com > Organization > Settings > API Tokens"
     )
 

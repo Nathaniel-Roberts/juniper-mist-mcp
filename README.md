@@ -16,16 +16,62 @@ Claude will query your Mist infrastructure and give you the answers directly.
 
 ## Installation
 
-### Option 1: Using `uvx` (No Install Required)
+### Step 1: Configure Your API Token
 
-**With `mcp add` command:**
+Create a config file at `~/.config/juniper-mist-mcp/.env`:
+
 ```bash
-claude mcp add juniper-mist \
-  --env MIST_API_TOKEN=YOUR_TOKEN_HERE \
-  -- uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp juniper-mist-mcp
+mkdir -p ~/.config/juniper-mist-mcp
+echo "MIST_API_TOKEN=your_token_here" > ~/.config/juniper-mist-mcp/.env
 ```
 
-**Or add directly to your mcp.json:**
+This keeps your token out of mcp.json and works automatically.
+
+### Step 2: Add the MCP Server
+
+**Option A: Using `uvx` (No Install Required)**
+
+```bash
+claude mcp add juniper-mist -- uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp juniper-mist-mcp
+```
+
+Or add directly to your mcp.json:
+```json
+{
+  "mcpServers": {
+    "juniper-mist": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp",
+        "juniper-mist-mcp"
+      ]
+    }
+  }
+}
+```
+
+**Option B: Using `pip install`**
+
+```bash
+pip install git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp
+```
+
+Then add to your mcp.json:
+```json
+{
+  "mcpServers": {
+    "juniper-mist": {
+      "command": "juniper-mist-mcp"
+    }
+  }
+}
+```
+
+### Alternative: Token in mcp.json
+
+If you prefer to keep the token in mcp.json instead of a `.env` file:
+
 ```json
 {
   "mcpServers": {
@@ -36,27 +82,6 @@ claude mcp add juniper-mist \
         "git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp",
         "juniper-mist-mcp"
       ],
-      "env": {
-        "MIST_API_TOKEN": "YOUR_TOKEN_HERE"
-      }
-    }
-  }
-}
-```
-
-### Option 2: Using `pip install`
-
-**Step 1: Install the package**
-```bash
-pip install git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp
-```
-
-**Step 2: Add to your mcp.json**
-```json
-{
-  "mcpServers": {
-    "juniper-mist": {
-      "command": "juniper-mist-mcp",
       "env": {
         "MIST_API_TOKEN": "YOUR_TOKEN_HERE"
       }
