@@ -14,22 +14,18 @@ This is a bridge between Claude (via the Model Context Protocol) and the Juniper
 
 Claude will query your Mist infrastructure and give you the answers directly.
 
-## Quick Setup
+## Installation
 
-### Option 1: Using `mcp add` (Recommended)
+### Option 1: Using `uvx` (No Install Required)
 
+**With `mcp add` command:**
 ```bash
 claude mcp add juniper-mist \
   --env MIST_API_TOKEN=YOUR_TOKEN_HERE \
   -- uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp juniper-mist-mcp
 ```
 
-Replace `YOUR_TOKEN_HERE` with your Mist API token.
-
-### Option 2: Manual mcp.json Configuration
-
-Add this to your `~/.claude/claude_desktop_config.json` or mcp.json:
-
+**Or add directly to your mcp.json:**
 ```json
 {
   "mcpServers": {
@@ -48,12 +44,15 @@ Add this to your `~/.claude/claude_desktop_config.json` or mcp.json:
 }
 ```
 
-### Option 3: Install via pip
+### Option 2: Using `pip install`
 
+**Step 1: Install the package**
 ```bash
 pip install git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp
+```
 
-# Then add to mcp.json:
+**Step 2: Add to your mcp.json**
+```json
 {
   "mcpServers": {
     "juniper-mist": {
@@ -166,13 +165,11 @@ claude mcp list
 
 **Server not appearing**
 - Run `claude mcp list` to verify registration
-- Check that uvx/pip is installed: `pip install uvx`
 - Restart Claude Code after adding the server
 
 ## Requirements
 
 - Python 3.10 or higher
-- `uvx` or `pip` for installation
 - A Juniper Mist account with API access
 
 ## Security Notes
