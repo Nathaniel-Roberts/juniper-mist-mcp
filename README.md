@@ -16,26 +16,18 @@ Claude will query your Mist infrastructure and give you the answers directly.
 
 ## Installation
 
-### Step 1: Configure Your API Token
+### Step 1: Add to your `.env` file
 
-Create a config file at `~/.config/juniper-mist-mcp/.env`:
+Add your Mist API token to your project's `.env` file:
 
-```bash
-mkdir -p ~/.config/juniper-mist-mcp
-echo "MIST_API_TOKEN=your_token_here" > ~/.config/juniper-mist-mcp/.env
+```
+MIST_API_TOKEN=your_token_here
 ```
 
-This keeps your token out of mcp.json and works automatically.
+### Step 2: Add to your `.mcp.json`
 
-### Step 2: Add the MCP Server
+Add this to your project's `.mcp.json`:
 
-**Option A: Using `uvx` (No Install Required)**
-
-```bash
-claude mcp add juniper-mist -- uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp juniper-mist-mcp
-```
-
-Or add directly to your mcp.json:
 ```json
 {
   "mcpServers": {
@@ -51,13 +43,15 @@ Or add directly to your mcp.json:
 }
 ```
 
-**Option B: Using `pip install`**
+That's it! The server will automatically read `MIST_API_TOKEN` from your `.env` file.
+
+### Alternative: Using `pip install`
 
 ```bash
 pip install git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp
 ```
 
-Then add to your mcp.json:
+Then in `.mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -70,7 +64,7 @@ Then add to your mcp.json:
 
 ### Alternative: Token in mcp.json
 
-If you prefer to keep the token in mcp.json instead of a `.env` file:
+If you prefer to specify the token directly in mcp.json:
 
 ```json
 {
