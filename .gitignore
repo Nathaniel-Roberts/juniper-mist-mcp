@@ -28,3 +28,4 @@ Thumbs.db
 
 # MCP specific
 *.log
+.mcp.json

@@ -617,7 +617,7 @@ async def get_device_inventory(
 @mcp.tool()
 async def get_device_stats(
     org_id: str,
-    site_id: Optional[str] = None,
+    site_id: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     status: Literal["connected", "disconnected", "all"] = "all",
     limit: int = 100,
@@ -630,7 +630,7 @@ async def get_device_stats(
 
     Args:
         org_id: Organization UUID
-        site_id: Optional site UUID to filter by site
+        site_id: Site UUID to filter by site
         device_type: Filter by device type
         status: Filter by connection status
         limit: Maximum devices to return (1-1000)
@@ -648,7 +648,7 @@ async def get_device_stats(
         - Use list_sites to get valid site_id values
     """
     try:
-        endpoint = f"/sites/{site_id}/stats/devices" if site_id else f"/orgs/{org_id}/stats/devices"
+        endpoint = f"/sites/{site_id}/stats/devices"
         params = {"limit": min(limit, 1000)}
 
         if device_type != "all":
@@ -796,7 +796,7 @@ async def get_alarms(
 @mcp.tool()
 async def get_client_stats(
     org_id: str,
-    site_id: Optional[str] = None,
+    site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str:
@@ -808,7 +808,7 @@ async def get_client_stats(
 
     Args:
         org_id: Organization UUID
-        site_id: Optional site UUID to filter by site
+        site_id: Site UUID to get clients from
         limit: Maximum clients to return (default 100)
         format: Response format
 
@@ -827,7 +827,7 @@ async def get_client_stats(
         - Use list_sites to get valid site_id values
     """
     try:
-        endpoint = f"/sites/{site_id}/stats/clients" if site_id else f"/orgs/{org_id}/clients"
+        endpoint = f"/sites/{site_id}/stats/clients"
         params = {"limit": limit}
 
         clients = await mist_api_request(endpoint, params=params)
@@ -836,8 +836,7 @@ async def get_client_stats(
             return json.dumps(clients, indent=2)
 
         if not clients:
-            location = f"site {site_id}" if site_id else "organization"
-            return f"# Connected Clients\n\nNo clients currently connected to {location}."
+            return f"# Connected Clients\n\nNo clients currently connected to site."
 
         result = f"# Connected Clients\n\n"
         result += f"Total: {len(clients)} client(s)\n\n"
@@ -1288,83 +1287,6 @@ async def get_device_events(
 
     except Exception as e:
         return f"Error getting device events: {str(e)}"
-
-
-@mcp.tool()
-async def get_audit_logs(
-    org_id: str,
-    admin_name: Optional[str] = None,
-    limit: int = 50,
-    format: Literal["json", "markdown"] = "markdown"
-) -> str:
-    """
-    Get audit logs showing administrative actions in the organization.
-
-    Retrieves a log of configuration changes, user actions, and administrative
-    events for compliance and troubleshooting.
-
-    Args:
-        org_id: Organization UUID
-        admin_name: Optional admin username to filter logs
-        limit: Maximum logs to return (default 50)
-        format: Response format
-
-    Returns:
-        List of audit events with admin, action, timestamp, and details
-
-    Example:
-        User: "Who made changes to the network recently?"
-        -> Use this tool with the org_id
-
-        User: "Show audit logs for admin john@example.com"
-        -> Use this tool with admin_name parameter
-
-    Error Handling:
-        - Returns empty if no audit logs in timeframe
-        - May require admin privileges to access
-    """
-    try:
-        params = {"limit": limit}
-        if admin_name:
-            params["admin_name"] = admin_name
-
-        logs = await mist_api_request(f"/orgs/{org_id}/logs", params=params)
-
-        if format == "json":
-            return json.dumps(logs, indent=2)
-
-        results_list = logs.get('results', logs) if isinstance(logs, dict) else logs
-
-        if not results_list:
-            return "# Audit Logs\n\nNo audit logs found."
-
-        result = "# Audit Logs\n\n"
-        result += f"Found {len(results_list)} log entries\n\n"
-
-        for log in results_list[:limit]:
-            action = log.get('message', 'Unknown Action')
-            result += f"## {action[:50]}{'...' if len(action) > 50 else ''}\n\n"
-
-            if 'timestamp' in log:
-                from datetime import datetime
-                ts = datetime.fromtimestamp(log['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
-                result += f"- **Time:** {ts}\n"
-
-            if 'admin_name' in log:
-                result += f"- **Admin:** {log['admin_name']}\n"
-            if 'src_ip' in log:
-                result += f"- **Source IP:** {log['src_ip']}\n"
-            if 'site_id' in log:
-                result += f"- **Site ID:** `{log['site_id']}`\n"
-            if 'message' in log:
-                result += f"- **Action:** {log['message']}\n"
-
-            result += "\n"
-
-        return truncate_response(result)
-
-    except Exception as e:
-        return f"Error getting audit logs: {str(e)}"
 
 
 # ============================================================================
@@ -3205,6 +3127,1469 @@ async def get_nac_portal_logs(
 
     except Exception as e:
         return f"Error getting NAC portal logs: {str(e)}"
+
+
+# ============================================================================
+# SLE (Service Level Expectations) Tools
+# ============================================================================
+
+@mcp.tool()
+async def get_sle_metrics(
+    site_id: str,
+    scope: Literal["site", "ap", "client"] = "site",
+    scope_id: Optional[str] = None,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    List available SLE (Service Level Expectation) metrics for a site.
+
+    SLEs measure network health from the end-user perspective. This tool
+    shows which metrics are available and their current status.
+
+    Args:
+        site_id: Site UUID to get SLE metrics for
+        scope: Scope level - "site" for overall, "ap" for specific AP, "client" for specific client
+        scope_id: Required if scope is "ap" or "client" - the AP MAC or client MAC
+        format: Response format
+
+    Returns:
+        List of available SLE metrics with descriptions
+
+    Available Metrics:
+        - time-to-connect: How long it takes clients to connect
+        - throughput: Data transfer speeds
+        - coverage: Signal strength adequacy
+        - capacity: Network load handling
+        - roaming: Handoff success between APs
+        - successful-connect: Connection success rate
+        - ap-availability: AP uptime
+
+    Example:
+        User: "What SLE metrics are available?"
+        -> Use this with site_id
+
+        User: "Show me network health metrics"
+        -> Use this tool to list SLE options
+    """
+    try:
+        # Build the scope path
+        if scope == "site":
+            scope_path = f"site/{site_id}"
+        elif scope == "ap":
+            if not scope_id:
+                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
+            scope_path = f"ap/{scope_id}"
+        elif scope == "client":
+            if not scope_id:
+                return "Error: scope_id (client MAC) is required when scope is 'client'"
+            scope_path = f"client/{scope_id}"
+        else:
+            scope_path = f"site/{site_id}"
+
+        metrics = await mist_api_request(f"/sites/{site_id}/sle/{scope_path}/metrics")
+
+        if format == "json":
+            return json.dumps(metrics, indent=2)
+
+        result = "# SLE Metrics\n\n"
+        result += f"**Scope:** {scope}\n"
+        result += f"**Site ID:** `{site_id}`\n\n"
+
+        # Known metric descriptions
+        metric_descriptions = {
+            "time-to-connect": "Measures how long it takes clients to fully connect (association, auth, DHCP)",
+            "throughput": "Measures actual data transfer speeds experienced by clients",
+            "coverage": "Measures signal strength and whether clients have adequate coverage",
+            "capacity": "Measures whether the network can handle the load without degradation",
+            "roaming": "Measures success and speed of client handoffs between APs",
+            "successful-connect": "Measures the percentage of successful connection attempts",
+            "ap-availability": "Measures AP uptime and reachability"
+        }
+
+        if isinstance(metrics, list):
+            result += f"## Available Metrics ({len(metrics)})\n\n"
+            for metric in metrics:
+                metric_name = metric if isinstance(metric, str) else metric.get('metric', str(metric))
+                result += f"### {metric_name}\n"
+                if metric_name in metric_descriptions:
+                    result += f"{metric_descriptions[metric_name]}\n"
+                if isinstance(metric, dict):
+                    if metric.get('threshold'):
+                        result += f"- **Threshold:** {metric['threshold']}\n"
+                    if metric.get('enabled') is not None:
+                        result += f"- **Enabled:** {'Yes' if metric['enabled'] else 'No'}\n"
+                result += "\n"
+        elif isinstance(metrics, dict):
+            for metric_name, metric_data in metrics.items():
+                result += f"### {metric_name}\n"
+                if metric_name in metric_descriptions:
+                    result += f"{metric_descriptions[metric_name]}\n"
+                if isinstance(metric_data, dict):
+                    for key, value in metric_data.items():
+                        result += f"- **{key}:** {value}\n"
+                result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting SLE metrics: {str(e)}"
+
+
+@mcp.tool()
+async def get_sle_summary(
+    site_id: str,
+    metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
+    scope: Literal["site", "ap", "client"] = "site",
+    scope_id: Optional[str] = None,
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get SLE summary showing success rate for a specific metric.
+
+    Returns the percentage of time the metric met its threshold,
+    along with the number of samples and degraded samples.
+
+    Args:
+        site_id: Site UUID
+        metric: Which SLE metric to query
+        scope: Scope level - "site", "ap", or "client"
+        scope_id: Required if scope is "ap" or "client"
+        duration: Hours of data to analyze (default 24)
+        format: Response format
+
+    Returns:
+        Success rate percentage and sample counts
+
+    Example:
+        User: "What's our time-to-connect SLE?"
+        -> Use with metric="time-to-connect"
+
+        User: "How is network throughput performing?"
+        -> Use with metric="throughput"
+
+        User: "Show me coverage SLE for the last week"
+        -> Use with metric="coverage", duration=168
+    """
+    try:
+        import time
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        # Build scope path
+        if scope == "site":
+            scope_path = f"site/{site_id}"
+        elif scope == "ap":
+            if not scope_id:
+                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
+            scope_path = f"ap/{scope_id}"
+        elif scope == "client":
+            if not scope_id:
+                return "Error: scope_id (client MAC) is required when scope is 'client'"
+            scope_path = f"client/{scope_id}"
+        else:
+            scope_path = f"site/{site_id}"
+
+        params = {
+            "start": start_time,
+            "end": end_time
+        }
+
+        summary = await mist_api_request(
+            f"/sites/{site_id}/sle/{scope_path}/metric/{metric}/summary",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(summary, indent=2)
+
+        result = f"# SLE Summary: {metric}\n\n"
+        result += f"**Scope:** {scope}\n"
+        result += f"**Period:** Last {duration} hour(s)\n\n"
+
+        # Handle both dict and list responses
+        if isinstance(summary, list) and len(summary) > 0:
+            summary = summary[0] if len(summary) == 1 else {'data': summary}
+
+        if isinstance(summary, dict):
+            # Check for Mist API structure with 'sle' nested object
+            sle_data = summary.get('sle', {})
+            samples = sle_data.get('samples', {})
+
+            if samples:
+                # Sum up all intervals
+                total_list = samples.get('total', [])
+                degraded_list = samples.get('degraded', [])
+                total = sum(total_list) if total_list else 0
+                degraded = sum(degraded_list) if degraded_list else 0
+            else:
+                # Fall back to simple structure
+                total = summary.get('total_count', summary.get('total', 0))
+                degraded = summary.get('degraded_count', summary.get('degraded', 0))
+
+            if total > 0:
+                success_rate = ((total - degraded) / total) * 100
+                result += f"## Success Rate: {success_rate:.1f}%\n\n"
+
+                # Visual indicator
+                if success_rate >= 95:
+                    result += "🟢 **Status:** Excellent\n\n"
+                elif success_rate >= 80:
+                    result += "🟡 **Status:** Good\n\n"
+                elif success_rate >= 60:
+                    result += "🟠 **Status:** Fair\n\n"
+                else:
+                    result += "🔴 **Status:** Poor\n\n"
+
+            result += "## Details\n\n"
+            result += f"- **Total Samples:** {int(total):,}\n"
+            result += f"- **Degraded Samples:** {int(degraded):,}\n"
+            result += f"- **Successful Samples:** {int(total - degraded):,}\n"
+
+            # Show impact info if available
+            impact = summary.get('impact', {})
+            if impact:
+                result += "\n## Impact\n\n"
+                result += f"- **Affected Users:** {impact.get('num_users', 0)} / {impact.get('total_users', 0)}\n"
+                result += f"- **Affected APs:** {impact.get('num_aps', 0)} / {impact.get('total_aps', 0)}\n"
+
+            # Show classifier breakdown if available
+            classifiers = summary.get('classifiers', [])
+            if classifiers and degraded > 0:
+                result += "\n## Failure Breakdown by Classifier\n\n"
+                for classifier in classifiers:
+                    name = classifier.get('name', 'Unknown')
+                    clf_samples = classifier.get('samples', {})
+                    clf_degraded = sum(clf_samples.get('degraded', [])) if clf_samples.get('degraded') else 0
+                    if clf_degraded > 0:
+                        pct = (clf_degraded / degraded * 100) if degraded > 0 else 0
+                        clf_impact = classifier.get('impact', {})
+                        users = clf_impact.get('num_users', 0)
+                        result += f"- **{name}:** {int(clf_degraded):,} ({pct:.1f}%) - {users} users affected\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting SLE summary: {str(e)}"
+
+
+@mcp.tool()
+async def get_sle_histogram(
+    site_id: str,
+    metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
+    scope: Literal["site", "ap", "client"] = "site",
+    scope_id: Optional[str] = None,
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get SLE histogram showing time-series data for a metric.
+
+    Returns data points over time showing how the SLE metric
+    varied across the specified duration.
+
+    Args:
+        site_id: Site UUID
+        metric: Which SLE metric to query
+        scope: Scope level - "site", "ap", or "client"
+        scope_id: Required if scope is "ap" or "client"
+        duration: Hours of data (default 24)
+        format: Response format
+
+    Returns:
+        Time-series data showing metric performance over time
+
+    Example:
+        User: "Show me throughput over the last day"
+        -> Use with metric="throughput"
+
+        User: "How has coverage varied this week?"
+        -> Use with metric="coverage", duration=168
+    """
+    try:
+        import time
+        from datetime import datetime
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        # Build scope path
+        if scope == "site":
+            scope_path = f"site/{site_id}"
+        elif scope == "ap":
+            if not scope_id:
+                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
+            scope_path = f"ap/{scope_id}"
+        else:
+            if not scope_id:
+                return "Error: scope_id (client MAC) is required when scope is 'client'"
+            scope_path = f"client/{scope_id}"
+
+        params = {
+            "start": start_time,
+            "end": end_time
+        }
+
+        histogram = await mist_api_request(
+            f"/sites/{site_id}/sle/{scope_path}/metric/{metric}/histogram",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(histogram, indent=2)
+
+        result = f"# SLE Histogram: {metric}\n\n"
+        result += f"**Period:** Last {duration} hour(s)\n\n"
+
+        if isinstance(histogram, dict):
+            data_points = histogram.get('data', histogram.get('results', []))
+            x_label = histogram.get('x_label', 'Value')
+            y_label = histogram.get('y_label', 'Count')
+
+            if isinstance(data_points, list) and len(data_points) > 0:
+                # Check if this is a range-based histogram (distribution)
+                if data_points[0].get('range') is not None:
+                    result += f"## Distribution Data ({len(data_points)} buckets)\n\n"
+                    result += f"**X-Axis:** {x_label}\n"
+                    result += f"**Y-Axis:** {y_label}\n\n"
+                    result += f"| Range ({x_label}) | {y_label.title()} |\n"
+                    result += "|------------------|--------|\n"
+
+                    total_value = sum(p.get('value', 0) for p in data_points)
+
+                    for point in data_points:
+                        range_vals = point.get('range', [None, None])
+                        low = range_vals[0] if range_vals[0] is not None else "< "
+                        high = range_vals[1] if range_vals[1] is not None else "+"
+                        value = point.get('value', 0)
+
+                        if range_vals[0] is None:
+                            range_str = f"< {high}"
+                        elif range_vals[1] is None:
+                            range_str = f"> {low}"
+                        else:
+                            range_str = f"{low} to {high}"
+
+                        pct = (value / total_value * 100) if total_value > 0 else 0
+                        result += f"| {range_str} | {value:,.0f} ({pct:.1f}%) |\n"
+
+                # Otherwise, assume time-series data
+                else:
+                    result += f"## Time Series Data ({len(data_points)} data points)\n\n"
+                    result += "| Time | Total | Degraded | Success Rate |\n"
+                    result += "|------|-------|----------|-------------|\n"
+
+                    for point in data_points[-20:]:
+                        ts = point.get('timestamp', point.get('start', 0))
+                        if ts:
+                            time_str = datetime.fromtimestamp(ts).strftime('%m/%d %H:%M')
+                        else:
+                            time_str = "N/A"
+
+                        total = point.get('total_count', point.get('total', 0))
+                        degraded = point.get('degraded_count', point.get('degraded', 0))
+
+                        if total > 0:
+                            success = ((total - degraded) / total) * 100
+                            result += f"| {time_str} | {total} | {degraded} | {success:.1f}% |\n"
+                        else:
+                            result += f"| {time_str} | {total} | {degraded} | N/A |\n"
+
+                    if len(data_points) > 20:
+                        result += f"\n*Showing last 20 of {len(data_points)} data points*\n"
+            else:
+                result += "No histogram data available for this period.\n"
+        else:
+            result += "No histogram data available.\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting SLE histogram: {str(e)}"
+
+
+@mcp.tool()
+async def get_sle_impact(
+    site_id: str,
+    metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get SLE impact analysis showing what's causing metric failures.
+
+    Breaks down failures by classifier, WLAN, device type, OS,
+    and band to identify root causes of SLE degradation.
+
+    Args:
+        site_id: Site UUID
+        metric: Which SLE metric to analyze
+        duration: Hours of data (default 24)
+        format: Response format
+
+    Returns:
+        Impact breakdown showing failure causes
+
+    Classifiers by Metric:
+        - time-to-connect: association, authorization, dhcp, ip-services
+        - throughput: capacity, coverage, device-capability, network-issues
+        - coverage: asymmetry-downlink, asymmetry-uplink, weak-signal
+        - capacity: ap-load, non-wifi-interference, wifi-interference
+        - roaming: slow-11r-roams, slow-okc-roams, slow-standard-roams
+        - successful-connect: association, authorization, dhcp
+        - ap-availability: ap-reboot, ap-unreachable, site-down
+
+    Example:
+        User: "Why are clients slow to connect?"
+        -> Use with metric="time-to-connect"
+
+        User: "What's causing throughput issues?"
+        -> Use with metric="throughput"
+    """
+    try:
+        import time
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        params = {
+            "start": start_time,
+            "end": end_time
+        }
+
+        impact = await mist_api_request(
+            f"/sites/{site_id}/sle/site/{site_id}/metric/{metric}/impact-summary",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(impact, indent=2)
+
+        result = f"# SLE Impact Analysis: {metric}\n\n"
+        result += f"**Period:** Last {duration} hour(s)\n\n"
+
+        if isinstance(impact, dict):
+            # Classifier breakdown
+            if impact.get('classifiers'):
+                result += "## Failures by Classifier\n\n"
+                total_failures = sum(impact['classifiers'].values())
+                for classifier, count in sorted(impact['classifiers'].items(), key=lambda x: x[1], reverse=True):
+                    if count > 0:
+                        pct = (count / total_failures * 100) if total_failures > 0 else 0
+                        result += f"- **{classifier}:** {count:,} ({pct:.1f}%)\n"
+                result += "\n"
+
+            # WLAN breakdown
+            if impact.get('wlans') or impact.get('wlan'):
+                wlan_data = impact.get('wlans', impact.get('wlan', {}))
+                result += "## Failures by WLAN/SSID\n\n"
+                if isinstance(wlan_data, dict):
+                    for wlan, count in sorted(wlan_data.items(), key=lambda x: x[1], reverse=True):
+                        if count > 0:
+                            result += f"- **{wlan}:** {count:,}\n"
+                result += "\n"
+
+            # Device type breakdown
+            if impact.get('device_types') or impact.get('device_type'):
+                device_data = impact.get('device_types', impact.get('device_type', {}))
+                result += "## Failures by Device Type\n\n"
+                if isinstance(device_data, dict):
+                    for device, count in sorted(device_data.items(), key=lambda x: x[1], reverse=True):
+                        if count > 0:
+                            result += f"- **{device}:** {count:,}\n"
+                result += "\n"
+
+            # OS breakdown
+            if impact.get('os') or impact.get('operating_systems'):
+                os_data = impact.get('os', impact.get('operating_systems', {}))
+                result += "## Failures by Operating System\n\n"
+                if isinstance(os_data, dict):
+                    for os_name, count in sorted(os_data.items(), key=lambda x: x[1], reverse=True):
+                        if count > 0:
+                            result += f"- **{os_name}:** {count:,}\n"
+                result += "\n"
+
+            # Band breakdown
+            if impact.get('bands') or impact.get('band'):
+                band_data = impact.get('bands', impact.get('band', {}))
+                result += "## Failures by Band\n\n"
+                if isinstance(band_data, dict):
+                    for band, count in sorted(band_data.items(), key=lambda x: x[1], reverse=True):
+                        if count > 0:
+                            result += f"- **{band}:** {count:,}\n"
+                result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting SLE impact: {str(e)}"
+
+
+@mcp.tool()
+async def get_sle_impacted_aps(
+    site_id: str,
+    metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
+    duration: int = 24,
+    limit: int = 20,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get list of APs most impacted by SLE failures.
+
+    Identifies which access points are contributing most to
+    SLE metric failures, helping prioritize troubleshooting.
+
+    Args:
+        site_id: Site UUID
+        metric: Which SLE metric to analyze
+        duration: Hours of data (default 24)
+        limit: Maximum APs to return (default 20)
+        format: Response format
+
+    Returns:
+        List of APs ranked by failure impact
+
+    Example:
+        User: "Which APs have the worst coverage?"
+        -> Use with metric="coverage"
+
+        User: "What APs are causing connection issues?"
+        -> Use with metric="time-to-connect"
+    """
+    try:
+        import time
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        params = {
+            "start": start_time,
+            "end": end_time,
+            "limit": limit
+        }
+
+        impacted = await mist_api_request(
+            f"/sites/{site_id}/sle/site/{site_id}/metric/{metric}/impacted-aps",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(impacted, indent=2)
+
+        result = f"# Impacted APs: {metric}\n\n"
+        result += f"**Period:** Last {duration} hour(s)\n\n"
+
+        aps = impacted if isinstance(impacted, list) else impacted.get('results', impacted.get('aps', []))
+
+        if not aps:
+            result += "No impacted APs found for this metric and time period.\n"
+            return result
+
+        result += f"## Top {len(aps)} Impacted Access Points\n\n"
+        result += "| Rank | AP Name | MAC | Failures | Total | Impact % |\n"
+        result += "|------|---------|-----|----------|-------|----------|\n"
+
+        for i, ap in enumerate(aps, 1):
+            name = ap.get('name', ap.get('ap_name', 'Unknown'))
+            mac = ap.get('mac', ap.get('ap_mac', 'N/A'))
+            degraded = ap.get('degraded_count', ap.get('degraded', ap.get('failures', 0)))
+            total = ap.get('total_count', ap.get('total', 0))
+
+            if total > 0:
+                impact_pct = (degraded / total) * 100
+                result += f"| {i} | {name} | `{mac}` | {degraded:,} | {total:,} | {impact_pct:.1f}% |\n"
+            else:
+                result += f"| {i} | {name} | `{mac}` | {degraded:,} | {total:,} | N/A |\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting impacted APs: {str(e)}"
+
+
+@mcp.tool()
+async def get_sle_impacted_clients(
+    site_id: str,
+    metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
+    duration: int = 24,
+    limit: int = 20,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get list of clients most impacted by SLE failures.
+
+    Identifies which client devices are experiencing the most
+    issues with a specific SLE metric.
+
+    Args:
+        site_id: Site UUID
+        metric: Which SLE metric to analyze
+        duration: Hours of data (default 24)
+        limit: Maximum clients to return (default 20)
+        format: Response format
+
+    Returns:
+        List of clients ranked by failure impact
+
+    Example:
+        User: "Which users have the worst WiFi experience?"
+        -> Use with metric="throughput"
+
+        User: "Who is having roaming problems?"
+        -> Use with metric="roaming"
+    """
+    try:
+        import time
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        params = {
+            "start": start_time,
+            "end": end_time,
+            "limit": limit
+        }
+
+        impacted = await mist_api_request(
+            f"/sites/{site_id}/sle/site/{site_id}/metric/{metric}/impacted-users",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(impacted, indent=2)
+
+        result = f"# Impacted Clients: {metric}\n\n"
+        result += f"**Period:** Last {duration} hour(s)\n\n"
+
+        clients = impacted if isinstance(impacted, list) else impacted.get('results', impacted.get('users', impacted.get('clients', [])))
+
+        if not clients:
+            result += "No impacted clients found for this metric and time period.\n"
+            return result
+
+        result += f"## Top {len(clients)} Impacted Clients\n\n"
+        result += "| Rank | Client | MAC | Failures | Total | Impact % |\n"
+        result += "|------|--------|-----|----------|-------|----------|\n"
+
+        for i, client in enumerate(clients, 1):
+            # Try various field names for client identifier
+            name = client.get('name', client.get('hostname', client.get('username', 'Unknown')))
+            mac = client.get('mac', client.get('client_mac', 'N/A'))
+            degraded = client.get('degraded_count', client.get('degraded', client.get('failures', 0)))
+            total = client.get('total_count', client.get('total', 0))
+
+            if total > 0:
+                impact_pct = (degraded / total) * 100
+                result += f"| {i} | {name} | `{mac}` | {degraded:,} | {total:,} | {impact_pct:.1f}% |\n"
+            else:
+                result += f"| {i} | {name} | `{mac}` | {degraded:,} | {total:,} | N/A |\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting impacted clients: {str(e)}"
+
+
+# ============================================================================
+# Maps & Floor Plans Tools
+# ============================================================================
+
+@mcp.tool()
+async def list_site_maps(
+    site_id: str,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    List all floor plans/maps configured for a site.
+
+    Retrieves all maps including floor plans, outdoor areas, and building layouts
+    with their dimensions, AP placements, and zone configurations.
+
+    Args:
+        site_id: Site UUID (get from list_sites)
+        format: Response format - "markdown" for readability, "json" for structured data
+
+    Returns:
+        List of maps with names, dimensions, and AP counts
+
+    Example:
+        User: "What floor plans are available at this site?"
+        -> Use this tool with the site_id
+
+        User: "Show me the maps"
+        -> Use this tool with the site_id
+
+    Error Handling:
+        - Returns empty if no maps configured
+        - Maps are required for location services
+    """
+    try:
+        maps = await mist_api_request(f"/sites/{site_id}/maps")
+
+        if format == "json":
+            return json.dumps(maps, indent=2)
+
+        if not maps:
+            return "# Site Maps\n\nNo maps/floor plans configured for this site."
+
+        result = "# Site Maps & Floor Plans\n\n"
+        result += f"Found {len(maps)} map(s)\n\n"
+
+        for map_info in maps:
+            name = map_info.get('name', 'Unnamed Map')
+            result += f"## {name}\n\n"
+
+            result += f"- **Map ID:** `{map_info.get('id', 'N/A')}`\n"
+
+            # Map type
+            if map_info.get('type'):
+                result += f"- **Type:** {map_info['type']}\n"
+
+            # Dimensions
+            width = map_info.get('width', 0)
+            height = map_info.get('height', 0)
+            if width and height:
+                result += f"- **Dimensions:** {width}m x {height}m\n"
+
+            # Scale/PPM (pixels per meter)
+            if map_info.get('ppm'):
+                result += f"- **Scale (PPM):** {map_info['ppm']} pixels/meter\n"
+
+            # Orientation
+            if map_info.get('orientation'):
+                result += f"- **Orientation:** {map_info['orientation']}°\n"
+
+            # Image info
+            if map_info.get('url'):
+                result += f"- **Has Image:** Yes\n"
+
+            # Location
+            if map_info.get('latlng'):
+                latlng = map_info['latlng']
+                result += f"- **Coordinates:** {latlng.get('lat')}, {latlng.get('lng')}\n"
+
+            # Locked status
+            if map_info.get('locked'):
+                result += f"- **Locked:** Yes (no edits allowed)\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error listing site maps: {str(e)}"
+
+
+@mcp.tool()
+async def get_map_info(
+    site_id: str,
+    map_id: str,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get detailed information about a specific map/floor plan.
+
+    Retrieves comprehensive map details including AP placements, walls,
+    zones, beacons, and other overlay objects.
+
+    Args:
+        site_id: Site UUID
+        map_id: Map UUID (get from list_site_maps)
+        format: Response format
+
+    Returns:
+        Detailed map configuration including AP positions and zones
+
+    Example:
+        User: "Show me details of the first floor map"
+        -> Use this tool with site_id and map_id
+
+        User: "What APs are on this floor plan?"
+        -> Use this tool to see AP placements
+
+    Error Handling:
+        - Returns error if map not found
+        - Use list_site_maps to get valid map IDs
+    """
+    try:
+        map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
+
+        if format == "json":
+            return json.dumps(map_info, indent=2)
+
+        name = map_info.get('name', 'Unnamed Map')
+        result = f"# Map: {name}\n\n"
+
+        result += f"- **Map ID:** `{map_info.get('id', 'N/A')}`\n"
+        result += f"- **Site ID:** `{site_id}`\n"
+
+        # Dimensions and scale
+        width = map_info.get('width', 0)
+        height = map_info.get('height', 0)
+        if width and height:
+            result += f"- **Dimensions:** {width}m x {height}m ({width * height:.0f} m²)\n"
+
+        if map_info.get('ppm'):
+            result += f"- **Scale:** {map_info['ppm']} pixels/meter\n"
+
+        if map_info.get('orientation'):
+            result += f"- **Orientation:** {map_info['orientation']}°\n"
+
+        # Location
+        if map_info.get('latlng'):
+            latlng = map_info['latlng']
+            result += f"- **Geo Location:** {latlng.get('lat')}, {latlng.get('lng')}\n"
+
+        # AP positions
+        if map_info.get('aps'):
+            aps = map_info['aps']
+            result += f"\n## Access Points ({len(aps)})\n\n"
+            result += "| Name | MAC | X (m) | Y (m) | Height |\n"
+            result += "|------|-----|-------|-------|--------|\n"
+
+            for ap in aps[:30]:
+                ap_name = ap.get('name', 'Unknown')
+                ap_mac = ap.get('mac', 'N/A')
+                x = ap.get('x', 0)
+                y = ap.get('y', 0)
+                height_val = ap.get('height', 'N/A')
+                result += f"| {ap_name} | `{ap_mac}` | {x:.1f} | {y:.1f} | {height_val}m |\n"
+
+            if len(aps) > 30:
+                result += f"\n*... and {len(aps) - 30} more APs*\n"
+
+        # Zones
+        if map_info.get('zones'):
+            zones = map_info['zones']
+            result += f"\n## Zones ({len(zones)})\n\n"
+            for zone in zones:
+                result += f"- **{zone.get('name', 'Unnamed Zone')}** (ID: `{zone.get('id', 'N/A')}`)\n"
+
+        # Walls (for RF planning)
+        if map_info.get('walls'):
+            walls = map_info['walls']
+            result += f"\n## Walls\n\n"
+            result += f"- **Wall Segments:** {len(walls)}\n"
+
+        # Beacons
+        if map_info.get('beacons'):
+            beacons = map_info['beacons']
+            result += f"\n## Virtual Beacons ({len(beacons)})\n\n"
+            for beacon in beacons[:10]:
+                result += f"- **{beacon.get('name', 'Unnamed')}** at ({beacon.get('x', 0):.1f}, {beacon.get('y', 0):.1f})\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting map info: {str(e)}"
+
+
+@mcp.tool()
+async def list_zones(
+    site_id: str,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    List all location zones configured at a site.
+
+    Zones are areas defined on floor plans used for location analytics,
+    occupancy tracking, and triggering location-based events.
+
+    Args:
+        site_id: Site UUID
+        format: Response format
+
+    Returns:
+        List of zones with names, types, and associated maps
+
+    Example:
+        User: "What zones are defined at this site?"
+        -> Use this tool with the site_id
+
+        User: "Show me the location zones"
+        -> Use this tool with the site_id
+
+    Error Handling:
+        - Returns empty if no zones configured
+        - Zones require maps to be configured first
+    """
+    try:
+        zones = await mist_api_request(f"/sites/{site_id}/zones")
+
+        if format == "json":
+            return json.dumps(zones, indent=2)
+
+        if not zones:
+            return "# Location Zones\n\nNo zones configured for this site."
+
+        result = "# Location Zones\n\n"
+        result += f"Found {len(zones)} zone(s)\n\n"
+
+        for zone in zones:
+            name = zone.get('name', 'Unnamed Zone')
+            result += f"## {name}\n\n"
+
+            result += f"- **Zone ID:** `{zone.get('id', 'N/A')}`\n"
+
+            if zone.get('map_id'):
+                result += f"- **Map ID:** `{zone['map_id']}`\n"
+
+            if zone.get('type'):
+                result += f"- **Type:** {zone['type']}\n"
+
+            # Zone vertices (polygon shape)
+            if zone.get('vertices'):
+                vertices = zone['vertices']
+                result += f"- **Vertices:** {len(vertices)} points\n"
+
+            # Zone settings
+            if zone.get('occupancy_limit'):
+                result += f"- **Occupancy Limit:** {zone['occupancy_limit']}\n"
+
+            if zone.get('asset_filter'):
+                result += f"- **Asset Filter:** Configured\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error listing zones: {str(e)}"
+
+
+# ============================================================================
+# Location Services & Assets Tools
+# ============================================================================
+
+
+@mcp.tool()
+async def list_assets(
+    site_id: str,
+    limit: int = 100,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    List BLE assets configured at a site.
+
+    Retrieves all BLE asset tags and tracked devices configured at the site,
+    including their current status, location, and battery level.
+
+    Args:
+        site_id: Site UUID
+        limit: Maximum assets to return (default 100)
+        format: Response format
+
+    Returns:
+        List of assets with name, MAC, status, and location info
+
+    Example:
+        User: "What assets are being tracked at this site?"
+        -> Use this tool with the site_id
+
+        User: "Show me all BLE tags"
+        -> Use this tool with the site_id
+
+    Error Handling:
+        - Returns empty if no assets configured
+        - Requires asset tracking license
+    """
+    try:
+        assets = await mist_api_request(
+            f"/sites/{site_id}/assets",
+            params={"limit": limit}
+        )
+
+        if format == "json":
+            return json.dumps(assets, indent=2)
+
+        # Format as markdown
+        result = "# BLE Assets\n\n"
+
+        if not assets:
+            return result + "No assets found at this site.\n"
+
+        result += f"Found {len(assets)} asset(s)\n\n"
+
+        for asset in assets:
+            name = asset.get('name', 'Unnamed Asset')
+            result += f"## {name}\n\n"
+
+            result += f"- **Asset ID:** `{asset.get('id', 'N/A')}`\n"
+            result += f"- **MAC Address:** `{asset.get('mac', 'N/A')}`\n"
+
+            if asset.get('device_type'):
+                result += f"- **Device Type:** {asset['device_type']}\n"
+
+            if asset.get('map_id'):
+                result += f"- **Map ID:** `{asset['map_id']}`\n"
+
+            # Location if available
+            if asset.get('x') is not None and asset.get('y') is not None:
+                result += f"- **Position:** ({asset['x']:.1f}, {asset['y']:.1f})\n"
+
+            # Battery level
+            if asset.get('battery_voltage'):
+                result += f"- **Battery:** {asset['battery_voltage']}V\n"
+
+            # Tags/labels
+            if asset.get('labels'):
+                result += f"- **Labels:** {', '.join(asset['labels'])}\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error listing assets: {str(e)}"
+
+
+@mcp.tool()
+async def get_asset_stats(
+    site_id: str,
+    limit: int = 100,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get real-time statistics for BLE assets at a site.
+
+    Retrieves current location, last seen time, and signal metrics
+    for tracked BLE assets.
+
+    Args:
+        site_id: Site UUID
+        limit: Maximum assets to return (default 100)
+        format: Response format
+
+    Returns:
+        Asset statistics including location, RSSI, and last seen time
+
+    Example:
+        User: "Where are the tracked assets right now?"
+        -> Use this tool with the site_id
+
+        User: "Show me asset locations"
+        -> Use this tool with the site_id
+
+    Error Handling:
+        - Returns empty if no assets or none currently visible
+        - Requires asset tracking to be enabled
+    """
+    try:
+        stats = await mist_api_request(
+            f"/sites/{site_id}/stats/assets",
+            params={"limit": limit}
+        )
+
+        if format == "json":
+            return json.dumps(stats, indent=2)
+
+        # Format as markdown
+        result = "# Asset Statistics\n\n"
+
+        if not stats:
+            return result + "No asset statistics available.\n"
+
+        result += f"Found {len(stats)} asset(s) with stats\n\n"
+
+        for stat in stats:
+            name = stat.get('name', stat.get('mac', 'Unknown'))
+            result += f"## {name}\n\n"
+
+            result += f"- **MAC:** `{stat.get('mac', 'N/A')}`\n"
+
+            # Map and location
+            if stat.get('map_id'):
+                result += f"- **Map ID:** `{stat['map_id']}`\n"
+
+            if stat.get('x') is not None and stat.get('y') is not None:
+                result += f"- **Current Position:** ({stat['x']:.1f}, {stat['y']:.1f})\n"
+
+            # Signal info
+            if stat.get('rssi') is not None:
+                result += f"- **RSSI:** {stat['rssi']} dBm\n"
+
+            # Last seen
+            if stat.get('last_seen'):
+                from datetime import datetime
+                last_seen = datetime.fromtimestamp(stat['last_seen'])
+                result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
+
+            # Battery
+            if stat.get('battery_voltage'):
+                result += f"- **Battery:** {stat['battery_voltage']}V\n"
+
+            # Zone if available
+            if stat.get('zone_id'):
+                result += f"- **Zone ID:** `{stat['zone_id']}`\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting asset stats: {str(e)}"
+
+
+@mcp.tool()
+async def search_assets(
+    site_id: str,
+    search_term: str,
+    limit: int = 50,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Search for BLE assets by name or MAC address.
+
+    Searches across all assets at a site to find matches.
+
+    Args:
+        site_id: Site UUID
+        search_term: Search string (name or MAC address)
+        limit: Maximum results to return
+        format: Response format
+
+    Returns:
+        Matching assets with their details
+
+    Example:
+        User: "Find asset named 'forklift'"
+        -> Use this tool with search_term="forklift"
+
+        User: "Search for asset with MAC aa:bb:cc"
+        -> Use this tool with search_term="aa:bb:cc"
+
+    Error Handling:
+        - Returns empty if no matches found
+        - Search is case-insensitive
+    """
+    try:
+        # Get all assets and filter locally
+        assets = await mist_api_request(
+            f"/sites/{site_id}/assets",
+            params={"limit": limit * 2}  # Get more to filter
+        )
+
+        # Filter by search term
+        search_lower = search_term.lower()
+        matched = []
+        for asset in assets:
+            name = asset.get('name', '').lower()
+            mac = asset.get('mac', '').lower()
+            if search_lower in name or search_lower in mac:
+                matched.append(asset)
+                if len(matched) >= limit:
+                    break
+
+        if format == "json":
+            return json.dumps(matched, indent=2)
+
+        # Format as markdown
+        result = f"# Asset Search Results for '{search_term}'\n\n"
+
+        if not matched:
+            return result + "No matching assets found.\n"
+
+        result += f"Found {len(matched)} matching asset(s)\n\n"
+
+        for asset in matched:
+            name = asset.get('name', 'Unnamed Asset')
+            result += f"## {name}\n\n"
+
+            result += f"- **Asset ID:** `{asset.get('id', 'N/A')}`\n"
+            result += f"- **MAC Address:** `{asset.get('mac', 'N/A')}`\n"
+
+            if asset.get('device_type'):
+                result += f"- **Device Type:** {asset['device_type']}\n"
+
+            if asset.get('labels'):
+                result += f"- **Labels:** {', '.join(asset['labels'])}\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error searching assets: {str(e)}"
+
+
+@mcp.tool()
+async def get_discovered_assets(
+    site_id: str,
+    limit: int = 100,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get discovered but unassigned BLE devices at a site.
+
+    Retrieves BLE devices that have been detected by the network but
+    haven't been configured as tracked assets yet.
+
+    Args:
+        site_id: Site UUID
+        limit: Maximum discoveries to return (default 100)
+        format: Response format
+
+    Returns:
+        List of discovered BLE devices with MAC, RSSI, and detection info
+
+    Example:
+        User: "What new BLE devices have been discovered?"
+        -> Use this tool with the site_id
+
+        User: "Show unassigned BLE tags"
+        -> Use this tool with the site_id
+
+    Error Handling:
+        - Returns empty if no new devices discovered
+        - Requires BLE scanning to be enabled on APs
+    """
+    try:
+        discovered = await mist_api_request(
+            f"/sites/{site_id}/stats/discovered_assets",
+            params={"limit": limit}
+        )
+
+        if format == "json":
+            return json.dumps(discovered, indent=2)
+
+        # Format as markdown
+        result = "# Discovered BLE Devices\n\n"
+
+        if not discovered:
+            return result + "No unassigned BLE devices discovered.\n"
+
+        result += f"Found {len(discovered)} discovered device(s)\n\n"
+
+        for device in discovered:
+            mac = device.get('mac', 'Unknown')
+            result += f"## {mac}\n\n"
+
+            # Device type/manufacturer
+            if device.get('device_type'):
+                result += f"- **Device Type:** {device['device_type']}\n"
+
+            if device.get('manufacture'):
+                result += f"- **Manufacturer:** {device['manufacture']}\n"
+
+            # Signal and detection
+            if device.get('rssi') is not None:
+                result += f"- **RSSI:** {device['rssi']} dBm\n"
+
+            if device.get('ap_mac'):
+                result += f"- **Detected by AP:** `{device['ap_mac']}`\n"
+
+            # Last seen
+            if device.get('last_seen'):
+                from datetime import datetime
+                last_seen = datetime.fromtimestamp(device['last_seen'])
+                result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
+
+            # iBeacon info if present
+            if device.get('ibeacon_uuid'):
+                result += f"- **iBeacon UUID:** `{device['ibeacon_uuid']}`\n"
+                if device.get('ibeacon_major'):
+                    result += f"- **iBeacon Major:** {device['ibeacon_major']}\n"
+                if device.get('ibeacon_minor'):
+                    result += f"- **iBeacon Minor:** {device['ibeacon_minor']}\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting discovered assets: {str(e)}"
+
+
+# ============================================================================
+# Additional Utility Tools
+# ============================================================================
+
+
+@mcp.tool()
+async def get_site_insights(
+    site_id: str,
+    metric: str = "bytes",
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get site-level network insights and analytics.
+
+    Retrieves aggregated metrics and analytics for a site over a time period.
+
+    Args:
+        site_id: Site UUID
+        metric: Metric type - "bytes", "num_clients", "num_aps"
+        duration: Hours of data to analyze (default 24)
+        format: Response format
+
+    Returns:
+        Site insights with metrics and trends
+
+    Example:
+        User: "How much traffic has the site had today?"
+        -> Use this tool with metric="bytes"
+
+        User: "How many clients connected over the past week?"
+        -> Use this tool with metric="num_clients", duration=168
+    """
+    try:
+        # Calculate time range
+        import time
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+
+        insights = await mist_api_request(
+            f"/sites/{site_id}/insights/{metric}",
+            params={"start": start_time, "end": end_time}
+        )
+
+        if format == "json":
+            return json.dumps(insights, indent=2)
+
+        result = f"# Site Insights: {metric}\n\n"
+        result += f"**Time Range:** Last {duration} hours\n\n"
+
+        if isinstance(insights, dict):
+            results = insights.get('results', [])
+            timestamps = insights.get('rt', [])
+
+            if results:
+                result += f"Found {len(results)} data point(s)\n\n"
+
+                # Results can be floats directly or dicts
+                if results and isinstance(results[0], (int, float)):
+                    values = [v for v in results if v is not None and v > 0]
+                else:
+                    values = [r.get('value', 0) for r in results if isinstance(r, dict) and r.get('value')]
+
+                if values:
+                    total = sum(values)
+                    # Format bytes nicely
+                    if metric == "bytes":
+                        if total > 1e12:
+                            result += f"- **Total:** {total/1e12:.2f} TB\n"
+                        elif total > 1e9:
+                            result += f"- **Total:** {total/1e9:.2f} GB\n"
+                        else:
+                            result += f"- **Total:** {total/1e6:.2f} MB\n"
+                    else:
+                        result += f"- **Total:** {total:,.0f}\n"
+
+                    result += f"- **Average:** {sum(values)/len(values):,.0f}\n"
+                    result += f"- **Peak:** {max(values):,.0f}\n"
+                    result += f"- **Data Points:** {len(values)}\n"
+
+                    # Show time range if available
+                    if timestamps and len(timestamps) >= 2:
+                        result += f"\n**Period:** {timestamps[0]} to {timestamps[-1]}\n"
+            else:
+                result += "No data available for this metric.\n"
+        elif isinstance(insights, list):
+            if insights:
+                result += f"Found {len(insights)} data point(s)\n"
+            else:
+                result += "No data available.\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting site insights: {str(e)}"
+
+
+@mcp.tool()
+async def get_ap_radio_status(
+    site_id: str,
+    ap_mac: Optional[str] = None,
+    band: Literal["24", "5", "6", "all"] = "all",
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Get current radio status and channel assignments for APs.
+
+    Retrieves real-time radio information including current channel,
+    power level, bandwidth, and client count per radio.
+
+    Args:
+        site_id: Site UUID
+        ap_mac: Optional AP MAC to filter for specific AP
+        band: Filter by frequency band
+        format: Response format
+
+    Returns:
+        Radio status including channels, power, and client distribution
+
+    Example:
+        User: "What channels are the APs using?"
+        -> Use this tool with the site_id
+
+        User: "Show me the 5GHz radio status"
+        -> Use this tool with band="5"
+    """
+    try:
+        # Get device stats which includes radio info
+        params = {"type": "ap"}
+        if ap_mac:
+            params["mac"] = ap_mac
+
+        stats = await mist_api_request(
+            f"/sites/{site_id}/stats/devices",
+            params=params
+        )
+
+        if format == "json":
+            return json.dumps(stats, indent=2)
+
+        result = "# AP Radio Status\n\n"
+
+        if not stats:
+            return result + "No AP stats available.\n"
+
+        result += f"Found {len(stats)} AP(s)\n\n"
+
+        for ap in stats:
+            name = ap.get('name', ap.get('mac', 'Unknown'))
+            result += f"## {name}\n\n"
+            result += f"- **MAC:** `{ap.get('mac', 'N/A')}`\n"
+            result += f"- **Status:** {ap.get('status', 'N/A')}\n"
+
+            # Radio info
+            if ap.get('radio_stat'):
+                radios = ap['radio_stat']
+
+                # 2.4 GHz
+                if (band in ["24", "all"]) and radios.get('band_24'):
+                    r24 = radios['band_24']
+                    result += f"\n**2.4 GHz Radio:**\n"
+                    result += f"  - Channel: {r24.get('channel', 'N/A')}\n"
+                    result += f"  - Power: {r24.get('power', 'N/A')} dBm\n"
+                    result += f"  - Bandwidth: {r24.get('bandwidth', 'N/A')} MHz\n"
+                    result += f"  - Clients: {r24.get('num_clients', 0)}\n"
+                    if r24.get('util_all') is not None:
+                        result += f"  - Utilization: {r24['util_all']}%\n"
+
+                # 5 GHz
+                if (band in ["5", "all"]) and radios.get('band_5'):
+                    r5 = radios['band_5']
+                    result += f"\n**5 GHz Radio:**\n"
+                    result += f"  - Channel: {r5.get('channel', 'N/A')}\n"
+                    result += f"  - Power: {r5.get('power', 'N/A')} dBm\n"
+                    result += f"  - Bandwidth: {r5.get('bandwidth', 'N/A')} MHz\n"
+                    result += f"  - Clients: {r5.get('num_clients', 0)}\n"
+                    if r5.get('util_all') is not None:
+                        result += f"  - Utilization: {r5['util_all']}%\n"
+
+                # 6 GHz
+                if (band in ["6", "all"]) and radios.get('band_6'):
+                    r6 = radios['band_6']
+                    result += f"\n**6 GHz Radio:**\n"
+                    result += f"  - Channel: {r6.get('channel', 'N/A')}\n"
+                    result += f"  - Power: {r6.get('power', 'N/A')} dBm\n"
+                    result += f"  - Bandwidth: {r6.get('bandwidth', 'N/A')} MHz\n"
+                    result += f"  - Clients: {r6.get('num_clients', 0)}\n"
+
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting AP radio status: {str(e)}"
 
 
 # ============================================================================
