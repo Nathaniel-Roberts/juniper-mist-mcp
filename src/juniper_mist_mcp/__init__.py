@@ -12,6 +12,7 @@ License: MIT
 
 import os
 import json
+from datetime import datetime
 from typing import Literal, Optional, Any
 from mcp.server.fastmcp import FastMCP
 import httpx
@@ -593,20 +594,22 @@ async def get_device_inventory(
         for dtype, devices in by_type.items():
             result += f"## {dtype.upper()} Devices ({len(devices)})\n\n"
 
+            # Table header
+            result += "| Name | Serial | MAC | Model | Site ID | Claimed |\n"
+            result += "|------|--------|-----|-------|---------|--------|\n"
+
             for device in devices[:50]:  # Limit per type
-                result += f"### {device.get('name', device.get('model', 'Unknown'))}\n\n"
-                result += f"- **Serial:** {device.get('serial', 'N/A')}\n"
-                result += f"- **MAC:** {device.get('mac', 'N/A')}\n"
-                result += f"- **Model:** {device.get('model', 'N/A')}\n"
-                result += f"- **Type:** {device.get('type', 'N/A')}\n"
-                if 'site_id' in device:
-                    result += f"- **Site ID:** `{device['site_id']}`\n"
-                if 'claimed' in device:
-                    result += f"- **Claimed:** {'Yes' if device['claimed'] else 'No'}\n"
-                result += "\n"
+                name = device.get('name', device.get('model', 'Unknown'))
+                serial = device.get('serial', 'N/A')
+                mac = device.get('mac', 'N/A')
+                model = device.get('model', 'N/A')
+                site_id = device.get('site_id', 'N/A')
+                claimed = 'Yes' if device.get('claimed') else 'No'
+                result += f"| {name} | {serial} | {mac} | {model} | {site_id} | {claimed} |\n"
 
             if len(devices) > 50:
-                result += f"... and {len(devices) - 50} more {dtype} devices\n\n"
+                result += f"\n... and {len(devices) - 50} more {dtype} devices\n"
+            result += "\n"
 
         return truncate_response(result)
 
@@ -667,39 +670,23 @@ async def get_device_stats(
         result = f"# Device Statistics\n\n"
         result += f"Found {len(stats)} device(s)\n\n"
 
+        # Table header
+        result += "| Name | MAC | Model | Type | Status | Uptime (hrs) | Clients | IP |\n"
+        result += "|------|-----|-------|------|--------|--------------|---------|----|\n"
+
         for device in stats[:100]:
             name = device.get('name', device.get('mac', 'Unknown'))
-            result += f"## {name}\n\n"
-            result += f"- **MAC:** {device.get('mac', 'N/A')}\n"
-            result += f"- **Model:** {device.get('model', 'N/A')}\n"
-            result += f"- **Type:** {device.get('type', 'N/A')}\n"
-            result += f"- **Status:** {device.get('status', 'N/A')}\n"
-
-            if 'uptime' in device:
-                uptime_hours = device['uptime'] / 3600
-                result += f"- **Uptime:** {uptime_hours:.1f} hours\n"
-
-            if 'version' in device:
-                result += f"- **Firmware:** {device['version']}\n"
-
-            if 'num_clients' in device:
-                result += f"- **Connected Clients:** {device['num_clients']}\n"
-
-            if 'cpu_stat' in device:
-                cpu = device['cpu_stat']
-                result += f"- **CPU Usage:** {cpu.get('usage', 'N/A')}%\n"
-
-            if 'memory_stat' in device:
-                mem = device['memory_stat']
-                result += f"- **Memory Usage:** {mem.get('usage', 'N/A')}%\n"
-
-            if 'ip' in device:
-                result += f"- **IP Address:** {device['ip']}\n"
-
-            result += "\n"
+            mac = device.get('mac', 'N/A')
+            model = device.get('model', 'N/A')
+            dtype = device.get('type', 'N/A')
+            status = device.get('status', 'N/A')
+            uptime = f"{device['uptime'] / 3600:.1f}" if 'uptime' in device else 'N/A'
+            clients = str(device.get('num_clients', 'N/A'))
+            ip = device.get('ip', 'N/A')
+            result += f"| {name} | {mac} | {model} | {dtype} | {status} | {uptime} | {clients} | {ip} |\n"
 
         if len(stats) > 100:
-            result += f"... and {len(stats) - 100} more devices (showing first 100)\n"
+            result += f"\n... and {len(stats) - 100} more devices (showing first 100)\n"
 
         return truncate_response(result)
 
@@ -749,10 +736,13 @@ async def get_alarms(
         if severity != "all":
             params["severity"] = severity
 
-        alarms = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
+        response = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
 
         if format == "json":
-            return json.dumps(alarms, indent=2)
+            return json.dumps(response, indent=2)
+
+        # Extract alarms from the results key
+        alarms = response.get("results", []) if isinstance(response, dict) else response
 
         if not alarms:
             return f"# Network Alarms\n\nNo active alarms found. Network is healthy!"
@@ -841,44 +831,23 @@ async def get_client_stats(
         result = f"# Connected Clients\n\n"
         result += f"Total: {len(clients)} client(s)\n\n"
 
+        # Table header
+        result += "| Hostname | MAC | IP | SSID | AP MAC | RSSI | Band | Device |\n"
+        result += "|----------|-----|----|----- |--------|------|------|--------|\n"
+
         for i, client in enumerate(clients[:100], 1):
             hostname = client.get('hostname', client.get('mac', f'Client {i}'))
-            result += f"## {hostname}\n\n"
-
-            result += f"- **MAC:** {client.get('mac', 'N/A')}\n"
-
-            if 'ip' in client:
-                result += f"- **IP:** {client['ip']}\n"
-
-            if 'ssid' in client:
-                result += f"- **SSID:** {client['ssid']}\n"
-
-            if 'ap_mac' in client:
-                result += f"- **Connected to AP:** {client['ap_mac']}\n"
-
-            if 'rssi' in client:
-                result += f"- **Signal Strength (RSSI):** {client['rssi']} dBm\n"
-
-            if 'snr' in client:
-                result += f"- **SNR:** {client['snr']} dB\n"
-
-            if 'band' in client:
-                result += f"- **Band:** {client['band']}\n"
-
-            if 'channel' in client:
-                result += f"- **Channel:** {client['channel']}\n"
-
-            if 'manufacture' in client or 'os' in client:
-                result += f"- **Device:** {client.get('manufacture', '')} {client.get('os', '')}\n"
-
-            if 'uptime' in client:
-                uptime_min = client['uptime'] / 60
-                result += f"- **Session Duration:** {uptime_min:.0f} minutes\n"
-
-            result += "\n"
+            mac = client.get('mac', 'N/A')
+            ip = client.get('ip', 'N/A')
+            ssid = client.get('ssid', 'N/A')
+            ap_mac = client.get('ap_mac', 'N/A')
+            rssi = f"{client['rssi']} dBm" if 'rssi' in client else 'N/A'
+            band = client.get('band', 'N/A')
+            device = f"{client.get('manufacture', '')} {client.get('os', '')}".strip() or 'N/A'
+            result += f"| {hostname} | {mac} | {ip} | {ssid} | {ap_mac} | {rssi} | {band} | {device} |\n"
 
         if len(clients) > 100:
-            result += f"... and {len(clients) - 100} more clients (showing first 100)\n"
+            result += f"\n... and {len(clients) - 100} more clients (showing first 100)\n"
 
         return truncate_response(result)
 
@@ -921,34 +890,85 @@ async def search_organization_devices(
         - Search is case-insensitive
     """
     try:
-        # Get inventory to search through
-        inventory = await mist_api_request(f"/orgs/{org_id}/inventory")
+        # Normalize search term for MAC address matching
+        search_normalized = search_term.lower().replace("-", ":").replace(".", ":")
 
-        if not inventory:
-            return f"# Device Search Results\n\nNo devices in inventory to search."
+        # Build query params for server-side filtering
+        # The Mist inventory API supports: serial, mac, model, type, limit
+        params = {"limit": min(limit * 3, 500)}  # Request more than needed for client-side filtering
 
-        # Filter by type if specified
         if device_type != "all":
-            inventory = [d for d in inventory if d.get('type') == device_type]
+            params["type"] = device_type
 
-        # Search across relevant fields
-        search_lower = search_term.lower()
+        # Detect if search term looks like a MAC address, serial, or model
+        # and use the appropriate server-side filter
+        is_mac_format = len(search_normalized.replace(":", "")) == 12 and all(
+            c in "0123456789abcdef:" for c in search_normalized
+        )
+        is_serial_format = search_term.upper().replace("-", "").isalnum() and len(search_term) >= 8
+
+        # Try server-side filtering first for exact matches
         matches = []
 
-        for device in inventory:
-            name = device.get('name', '').lower()
-            mac = device.get('mac', '').lower()
-            serial = device.get('serial', '').lower()
-            model = device.get('model', '').lower()
+        # If it looks like a MAC address, try exact MAC filter first
+        if is_mac_format:
+            params["mac"] = search_normalized
+            inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=params)
+            if inventory:
+                matches.extend(inventory)
 
-            if (search_lower in name or
-                search_lower in mac or
-                search_lower in serial or
-                search_lower in model):
-                matches.append(device)
+        # If it looks like a serial number and no MAC matches, try serial filter
+        if not matches and is_serial_format:
+            serial_params = {"limit": min(limit, 100)}
+            if device_type != "all":
+                serial_params["type"] = device_type
+            serial_params["serial"] = search_term.upper()
+            inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=serial_params)
+            if inventory:
+                matches.extend(inventory)
 
-            if len(matches) >= limit:
-                break
+        # If no exact matches found, fall back to broader search with client-side filtering
+        if not matches:
+            # Request a limited inventory for client-side search
+            fallback_params = {"limit": min(limit * 5, 500)}  # Limit payload size
+            if device_type != "all":
+                fallback_params["type"] = device_type
+
+            inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=fallback_params)
+
+            if not inventory:
+                return f"# Device Search Results\n\nNo devices in inventory to search."
+
+            # Search across relevant fields (client-side)
+            search_lower = search_term.lower()
+
+            for device in inventory:
+                name = device.get('name', '').lower()
+                mac = device.get('mac', '').lower()
+                serial = device.get('serial', '').lower()
+                model = device.get('model', '').lower()
+
+                if (search_lower in name or
+                    search_lower in mac or
+                    search_lower in serial or
+                    search_lower in model):
+                    matches.append(device)
+
+                if len(matches) >= limit:
+                    break
+
+        # Deduplicate matches (in case of overlap from multiple queries)
+        seen_serials = set()
+        unique_matches = []
+        for device in matches:
+            serial = device.get('serial', '')
+            if serial not in seen_serials:
+                seen_serials.add(serial)
+                unique_matches.append(device)
+                if len(unique_matches) >= limit:
+                    break
+
+        matches = unique_matches
 
         if format == "json":
             return json.dumps(matches, indent=2)
@@ -959,15 +979,18 @@ async def search_organization_devices(
         result = f"# Device Search Results\n\n"
         result += f"Found {len(matches)} device(s) matching '{search_term}'\n\n"
 
+        # Table format
+        result += "| Name | Serial | MAC | Model | Type | Site ID |\n"
+        result += "|------|--------|-----|-------|------|--------|\n"
+
         for device in matches:
-            result += f"## {device.get('name', 'Unnamed Device')}\n\n"
-            result += f"- **Serial:** {device.get('serial', 'N/A')}\n"
-            result += f"- **MAC:** {device.get('mac', 'N/A')}\n"
-            result += f"- **Model:** {device.get('model', 'N/A')}\n"
-            result += f"- **Type:** {device.get('type', 'N/A')}\n"
-            if 'site_id' in device:
-                result += f"- **Site ID:** `{device['site_id']}`\n"
-            result += "\n"
+            name = device.get('name', 'Unnamed')
+            serial = device.get('serial', 'N/A')
+            mac = device.get('mac', 'N/A')
+            model = device.get('model', 'N/A')
+            dtype = device.get('type', 'N/A')
+            site = device.get('site_id', 'N/A')[:8] + '...' if device.get('site_id') else 'N/A'
+            result += f"| {name} | {serial} | {mac} | {model} | {dtype} | {site} |\n"
 
         return truncate_response(result)
 
@@ -1024,7 +1047,6 @@ async def list_wlans(
             ssid = wlan.get('ssid', 'Unnamed WLAN')
             result += f"## {ssid}\n\n"
             result += f"- **WLAN ID:** `{wlan.get('id', 'N/A')}`\n"
-            result += f"- **SSID:** {ssid}\n"
             result += f"- **Enabled:** {'Yes' if wlan.get('enabled', False) else 'No'}\n"
 
             # Security
@@ -1096,7 +1118,6 @@ async def list_org_wlans(
             ssid = wlan.get('ssid', 'Unnamed WLAN')
             result += f"## {ssid}\n\n"
             result += f"- **WLAN ID:** `{wlan.get('id', 'N/A')}`\n"
-            result += f"- **SSID:** {ssid}\n"
 
             auth_type = wlan.get('auth', {}).get('type', 'open')
             result += f"- **Security:** {auth_type}\n"
@@ -1185,12 +1206,12 @@ async def get_switch_port_stats(
 
             for port in sorted(switch_ports, key=lambda x: x.get('port_id', '')):
                 port_id = port.get('port_id', 'N/A')
-                status = '🟢 Up' if port.get('up', False) else '🔴 Down'
+                status = 'Up' if port.get('up', False) else 'Down'
                 speed = port.get('speed', 'N/A')
                 if speed and speed != 'N/A':
                     speed = f"{speed}Mbps"
                 vlan = port.get('vlan_id', 'N/A')
-                poe_on = '⚡' if port.get('poe_on', False) else '-'
+                poe_on = 'Yes' if port.get('poe_on', False) else '-'
                 desc = port.get('port_desc', '-')[:20]
 
                 result += f"| {port_id} | {status} | {speed} | {vlan} | {poe_on} | {desc} |\n"
@@ -1266,7 +1287,6 @@ async def get_device_events(
             result += f"## {event_type}\n\n"
 
             if 'timestamp' in event:
-                from datetime import datetime
                 ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                 result += f"- **Time:** {ts}\n"
 
@@ -1411,10 +1431,10 @@ async def get_rogue_aps(
         results_list = rogues.get('results', rogues) if isinstance(rogues, dict) else rogues
 
         if not results_list:
-            return "# Rogue AP Detection\n\n✅ No rogue access points detected."
+            return "# Rogue AP Detection\n\nNo rogue access points detected."
 
         result = "# Rogue AP Detection\n\n"
-        result += f"⚠️ Found {len(results_list)} potential rogue AP(s)\n\n"
+        result += f"**Warning:** Found {len(results_list)} potential rogue AP(s)\n\n"
 
         for rogue in results_list[:limit]:
             ssid = rogue.get('ssid', '<Hidden SSID>')
@@ -1433,7 +1453,6 @@ async def get_rogue_aps(
                 result += f"- **Detected By AP:** {rogue['ap_mac']}\n"
 
             if 'last_seen' in rogue:
-                from datetime import datetime
                 ts = datetime.fromtimestamp(rogue['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
                 result += f"- **Last Seen:** {ts}\n"
 
@@ -1610,7 +1629,7 @@ async def get_marvis_actions(
         results_list = actions.get('results', actions) if isinstance(actions, dict) else actions
 
         if not results_list:
-            return "# Marvis Actions\n\n✅ No active Marvis actions. Network looks healthy!"
+            return "# Marvis Actions\n\nNo active Marvis actions. Network looks healthy!"
 
         result = "# Marvis AI Actions\n\n"
         result += f"Found {len(results_list)} action(s)\n\n"
@@ -1632,7 +1651,7 @@ async def get_marvis_actions(
 
                 # Status
                 action_status = action.get('status', 'N/A')
-                status_icon = '🔴' if action_status == 'open' else '✅' if action_status == 'resolved' else '🟡'
+                status_icon = '[OPEN]' if action_status == 'open' else '[RESOLVED]' if action_status == 'resolved' else '[PENDING]'
                 result += f"- **Status:** {status_icon} {action_status}\n"
 
                 # Site info
@@ -1668,11 +1687,9 @@ async def get_marvis_actions(
 
                 # Timestamp
                 if 'timestamp' in action:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(action['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"- **Detected:** {ts}\n"
                 elif 'last_seen' in action:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(action['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"- **Last Seen:** {ts}\n"
 
@@ -1958,23 +1975,11 @@ async def search_client_events(
 
         for etype in sorted_types:
             type_events = by_type[etype]
-            # Use appropriate icons for different event types
-            if 'FAILURE' in etype:
-                icon = '🔴'
-            elif 'DISCONNECTED' in etype:
-                icon = '🟠'
-            elif 'CONNECTED' in etype:
-                icon = '🟢'
-            elif 'ROAM' in etype:
-                icon = '🔄'
-            else:
-                icon = '📋'
 
-            result += f"## {icon} {etype} ({len(type_events)})\n\n"
+            result += f"## {etype} ({len(type_events)})\n\n"
 
             for event in type_events[:20]:  # Show up to 20 per type
                 if 'timestamp' in event:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"### {ts}\n\n"
 
@@ -1984,10 +1989,8 @@ async def search_client_events(
                     result += f"- **Hostname:** {event['hostname']}\n"
                 if event.get('ssid'):
                     result += f"- **SSID:** {event['ssid']}\n"
-                if event.get('ap'):
-                    result += f"- **AP:** {event['ap']}\n"
-                if event.get('ap_mac'):
-                    result += f"- **AP MAC:** {event['ap_mac']}\n"
+                if event.get('ap') or event.get('ap_mac'):
+                    result += f"- **AP:** {event.get('ap') or event.get('ap_mac', 'N/A')}\n"
                 if event.get('band'):
                     result += f"- **Band:** {event['band']}\n"
                 if event.get('channel'):
@@ -2086,11 +2089,9 @@ async def get_client_session_history(
 
             # Connection times
             if 'connect_time' in session or 'timestamp' in session:
-                from datetime import datetime
                 connect_ts = session.get('connect_time') or session.get('timestamp')
                 result += f"- **Connected:** {datetime.fromtimestamp(connect_ts).strftime('%Y-%m-%d %H:%M:%S')}\n"
             if 'disconnect_time' in session:
-                from datetime import datetime
                 result += f"- **Disconnected:** {datetime.fromtimestamp(session['disconnect_time']).strftime('%Y-%m-%d %H:%M:%S')}\n"
             if 'duration' in session:
                 dur_min = session['duration'] / 60
@@ -2245,16 +2246,23 @@ async def search_nac_client_events(
         result = "# NAC Client Events\n\n"
         result += f"Found {len(results_list)} event(s) in the last {duration} hour(s)\n\n"
 
-        # Group by result
-        successes = [e for e in results_list if e.get('nac_result') == 'success' or e.get('auth_result') == 'success']
-        failures = [e for e in results_list if e.get('nac_result') == 'failure' or e.get('auth_result') == 'failure']
-        others = [e for e in results_list if e not in successes and e not in failures]
+        # Group by result (single-pass O(n) approach)
+        successes = []
+        failures = []
+        others = []
+        for e in results_list:
+            nac_result = e.get('nac_result') or e.get('auth_result')
+            if nac_result == 'success':
+                successes.append(e)
+            elif nac_result == 'failure':
+                failures.append(e)
+            else:
+                others.append(e)
 
         if failures:
-            result += f"## 🔴 Authentication Failures ({len(failures)})\n\n"
+            result += f"## Authentication Failures ({len(failures)})\n\n"
             for event in failures[:30]:
                 if 'timestamp' in event:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"### {ts}\n\n"
 
@@ -2269,10 +2277,8 @@ async def search_nac_client_events(
                     result += f"- **AP:** {event.get('ap', event.get('ap_mac', 'N/A'))}\n"
 
                 # Failure details - critical for troubleshooting
-                if event.get('failure_reason'):
-                    result += f"- **⚠️ Failure Reason:** {event['failure_reason']}\n"
-                if event.get('reason'):
-                    result += f"- **⚠️ Reason:** {event['reason']}\n"
+                if event.get('failure_reason') or event.get('reason'):
+                    result += f"- **Reason:** {event.get('failure_reason') or event.get('reason')}\n"
                 if event.get('radius_reply_code'):
                     result += f"- **RADIUS Reply Code:** {event['radius_reply_code']}\n"
                 if event.get('radius_reply_message'):
@@ -2290,10 +2296,9 @@ async def search_nac_client_events(
                 result += f"... and {len(failures) - 30} more failures\n\n"
 
         if successes:
-            result += f"## 🟢 Authentication Successes ({len(successes)})\n\n"
+            result += f"## Authentication Successes ({len(successes)})\n\n"
             for event in successes[:20]:
                 if 'timestamp' in event:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"### {ts}\n\n"
 
@@ -2321,7 +2326,7 @@ async def search_nac_client_events(
                 result += f"... and {len(successes) - 20} more successes\n\n"
 
         if others:
-            result += f"## 📋 Other Events ({len(others)})\n\n"
+            result += f"## Other Events ({len(others)})\n\n"
             for event in others[:10]:
                 result += f"- {event.get('type', 'Unknown')}: MAC {event.get('mac', 'N/A')}\n"
             result += "\n"
@@ -2712,13 +2717,10 @@ async def search_wired_client_events(
         # Show denials first
         for etype in sorted(by_type.keys(), key=lambda x: 0 if 'DENY' in x else 1):
             type_events = by_type[etype]
-            icon = '🔴' if 'DENY' in etype or 'FAILURE' in etype else '🟢' if 'PERMIT' in etype or 'SUCCESS' in etype else '📋'
-
-            result += f"## {icon} {etype} ({len(type_events)})\n\n"
+            result += f"## {etype} ({len(type_events)})\n\n"
 
             for event in type_events[:25]:
                 if 'timestamp' in event:
-                    from datetime import datetime
                     ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                     result += f"### {ts}\n\n"
 
@@ -2743,10 +2745,8 @@ async def search_wired_client_events(
                     result += f"- **NAC Role:** {event['nac_role']}\n"
 
                 # Failure reasons
-                if event.get('failure_reason'):
-                    result += f"- **⚠️ Failure Reason:** {event['failure_reason']}\n"
-                if event.get('reason'):
-                    result += f"- **⚠️ Reason:** {event['reason']}\n"
+                if event.get('failure_reason') or event.get('reason'):
+                    result += f"- **Reason:** {event.get('failure_reason') or event.get('reason')}\n"
                 if event.get('radius_reply_message'):
                     result += f"- **RADIUS Message:** {event['radius_reply_message']}\n"
 
@@ -2833,9 +2833,9 @@ async def get_client_by_mac(
         # Connection status
         result += "\n## Connection Status\n\n"
         if client.get('connected'):
-            result += "- **Status:** 🟢 Connected\n"
+            result += "- **Status:** Connected\n"
         else:
-            result += "- **Status:** 🔴 Disconnected\n"
+            result += "- **Status:** Disconnected\n"
 
         if client.get('site_name') or client.get('site_id'):
             result += f"- **Site:** {client.get('site_name', client.get('site_id', 'N/A'))}\n"
@@ -2883,15 +2883,12 @@ async def get_client_by_mac(
         # Timestamps
         result += "\n## Timestamps\n\n"
         if client.get('last_seen'):
-            from datetime import datetime
             ts = datetime.fromtimestamp(client['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
             result += f"- **Last Seen:** {ts}\n"
         if client.get('first_seen'):
-            from datetime import datetime
             ts = datetime.fromtimestamp(client['first_seen']).strftime('%Y-%m-%d %H:%M:%S')
             result += f"- **First Seen:** {ts}\n"
         if client.get('connect_time'):
-            from datetime import datetime
             ts = datetime.fromtimestamp(client['connect_time']).strftime('%Y-%m-%d %H:%M:%S')
             result += f"- **Connected At:** {ts}\n"
 
@@ -3092,7 +3089,6 @@ async def get_nac_portal_logs(
 
         for log in results_list[:limit]:
             if 'timestamp' in log:
-                from datetime import datetime
                 ts = datetime.fromtimestamp(log['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
                 result += f"## {ts}\n\n"
 
@@ -3132,6 +3128,39 @@ async def get_nac_portal_logs(
 # ============================================================================
 # SLE (Service Level Expectations) Tools
 # ============================================================================
+
+
+def _build_sle_scope_path(
+    scope: str,
+    site_id: str,
+    scope_id: Optional[str] = None
+) -> tuple[str, Optional[str]]:
+    """
+    Build the scope path for SLE API endpoints.
+
+    Args:
+        scope: Scope level - "site", "ap", or "client"
+        site_id: Site UUID
+        scope_id: Required if scope is "ap" or "client" - the AP MAC or client MAC
+
+    Returns:
+        Tuple of (scope_path, error_message).
+        If error_message is not None, an error occurred and scope_path should be ignored.
+    """
+    if scope == "site":
+        return f"site/{site_id}", None
+    elif scope == "ap":
+        if not scope_id:
+            return "", "Error: scope_id (AP MAC) is required when scope is 'ap'"
+        return f"ap/{scope_id}", None
+    elif scope == "client":
+        if not scope_id:
+            return "", "Error: scope_id (client MAC) is required when scope is 'client'"
+        return f"client/{scope_id}", None
+    else:
+        # Default to site scope
+        return f"site/{site_id}", None
+
 
 @mcp.tool()
 async def get_sle_metrics(
@@ -3173,18 +3202,9 @@ async def get_sle_metrics(
     """
     try:
         # Build the scope path
-        if scope == "site":
-            scope_path = f"site/{site_id}"
-        elif scope == "ap":
-            if not scope_id:
-                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
-            scope_path = f"ap/{scope_id}"
-        elif scope == "client":
-            if not scope_id:
-                return "Error: scope_id (client MAC) is required when scope is 'client'"
-            scope_path = f"client/{scope_id}"
-        else:
-            scope_path = f"site/{site_id}"
+        scope_path, error = _build_sle_scope_path(scope, site_id, scope_id)
+        if error:
+            return error
 
         metrics = await mist_api_request(f"/sites/{site_id}/sle/{scope_path}/metrics")
 
@@ -3277,18 +3297,9 @@ async def get_sle_summary(
         start_time = end_time - (duration * 3600)
 
         # Build scope path
-        if scope == "site":
-            scope_path = f"site/{site_id}"
-        elif scope == "ap":
-            if not scope_id:
-                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
-            scope_path = f"ap/{scope_id}"
-        elif scope == "client":
-            if not scope_id:
-                return "Error: scope_id (client MAC) is required when scope is 'client'"
-            scope_path = f"client/{scope_id}"
-        else:
-            scope_path = f"site/{site_id}"
+        scope_path, error = _build_sle_scope_path(scope, site_id, scope_id)
+        if error:
+            return error
 
         params = {
             "start": start_time,
@@ -3333,13 +3344,13 @@ async def get_sle_summary(
 
                 # Visual indicator
                 if success_rate >= 95:
-                    result += "🟢 **Status:** Excellent\n\n"
+                    result += "**Status:** Excellent\n\n"
                 elif success_rate >= 80:
-                    result += "🟡 **Status:** Good\n\n"
+                    result += "**Status:** Good\n\n"
                 elif success_rate >= 60:
-                    result += "🟠 **Status:** Fair\n\n"
+                    result += "**Status:** Fair\n\n"
                 else:
-                    result += "🔴 **Status:** Poor\n\n"
+                    result += "**Status:** Poor\n\n"
 
             result += "## Details\n\n"
             result += f"- **Total Samples:** {int(total):,}\n"
@@ -3360,7 +3371,8 @@ async def get_sle_summary(
                 for classifier in classifiers:
                     name = classifier.get('name', 'Unknown')
                     clf_samples = classifier.get('samples', {})
-                    clf_degraded = sum(clf_samples.get('degraded', [])) if clf_samples.get('degraded') else 0
+                    clf_degraded_list = clf_samples.get('degraded', [])
+                    clf_degraded = sum(clf_degraded_list) if clf_degraded_list else 0
                     if clf_degraded > 0:
                         pct = (clf_degraded / degraded * 100) if degraded > 0 else 0
                         clf_impact = classifier.get('impact', {})
@@ -3408,21 +3420,13 @@ async def get_sle_histogram(
     """
     try:
         import time
-        from datetime import datetime
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
         # Build scope path
-        if scope == "site":
-            scope_path = f"site/{site_id}"
-        elif scope == "ap":
-            if not scope_id:
-                return "Error: scope_id (AP MAC) is required when scope is 'ap'"
-            scope_path = f"ap/{scope_id}"
-        else:
-            if not scope_id:
-                return "Error: scope_id (client MAC) is required when scope is 'client'"
-            scope_path = f"client/{scope_id}"
+        scope_path, error = _build_sle_scope_path(scope, site_id, scope_id)
+        if error:
+            return error
 
         params = {
             "start": start_time,
@@ -4206,7 +4210,6 @@ async def get_asset_stats(
 
             # Last seen
             if stat.get('last_seen'):
-                from datetime import datetime
                 last_seen = datetime.fromtimestamp(stat['last_seen'])
                 result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
 
@@ -4376,7 +4379,6 @@ async def get_discovered_assets(
 
             # Last seen
             if device.get('last_seen'):
-                from datetime import datetime
                 last_seen = datetime.fromtimestamp(device['last_seen'])
                 result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
 
@@ -4630,7 +4632,6 @@ async def get_client_location_history(
         -> Use with start="2026-02-02 08:00", end="2026-02-02 16:00"
     """
     import time
-    from datetime import datetime
 
     try:
         # Handle start/end time parameters
@@ -4662,48 +4663,94 @@ async def get_client_location_history(
         ap_stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params={"type": "ap", "limit": 1000})
         ap_names = {d.get('mac', '').lower(): d.get('name', d.get('mac', '?')) for d in ap_stats}
 
-        # Build compact timeline - dedupe by AP and consolidate
-        seen = set()
-        timeline = []
-        for s in results:
-            ap_mac = (s.get('ap_mac') or s.get('ap', '')).lower().replace('-', ':')
-            t = s.get('connect_time') or s.get('timestamp')
-            key = (ap_mac, int(t) if t else 0)
-            if key in seen:
+        # Build movement timeline - track when client moved between APs
+        # Sort all sessions by connect time (API uses 'connect' not 'connect_time')
+        sessions_sorted = sorted(results, key=lambda s: s.get('connect') or s.get('connect_time') or s.get('timestamp') or 0)
+
+        # Build movement list: each entry is when client connected to a NEW AP
+        movements = []
+        last_ap = None
+        for s in sessions_sorted:
+            # API uses 'ap' not 'ap_mac'
+            ap_mac = (s.get('ap') or s.get('ap_mac', '')).lower().replace('-', ':')
+            # API uses 'connect' not 'connect_time'
+            t = s.get('connect') or s.get('connect_time') or s.get('timestamp')
+            if not t:
                 continue
-            seen.add(key)
 
             ap_name = ap_names.get(ap_mac, ap_mac)
+
+            # Only record if this is a different AP than the last one (actual movement)
+            if ap_name != last_ap:
+                movements.append({
+                    'start': t,
+                    'ap': ap_name
+                })
+                last_ap = ap_name
+
+        # Calculate end times: end time is when they moved to the next AP
+        timeline = []
+        for i, m in enumerate(movements):
+            if i + 1 < len(movements):
+                end_t = movements[i + 1]['start']
+            else:
+                # Last movement - use the last session's disconnect time or duration
+                last_session = sessions_sorted[-1] if sessions_sorted else None
+                if last_session:
+                    # API uses 'disconnect' not 'disconnect_time'
+                    end_t = last_session.get('disconnect') or last_session.get('disconnect_time') or (m['start'] + last_session.get('duration', 0))
+                else:
+                    end_t = m['start']
+
             timeline.append({
-                't': t,
-                'dur': s.get('duration', 0),
-                'ap': ap_name,
-                'ap_mac': ap_mac
+                'start': m['start'],
+                'end': end_t,
+                'ap': m['ap'],
+                'still_connected': False
             })
 
-        timeline.sort(key=lambda x: x['t'] or 0)
+        # Check if client is currently connected to the last AP
+        if timeline:
+            try:
+                # Get org_id from site, then use org-level client search
+                site_info = await mist_api_request(f"/sites/{site_id}")
+                org_id = site_info.get('org_id')
+                if org_id:
+                    current = await mist_api_request(f"/orgs/{org_id}/clients/search", params={"mac": mac, "limit": 1})
+                    results_list = current.get('results', []) if isinstance(current, dict) else current
+                    if results_list and len(results_list) > 0:
+                        last_ap_mac = results_list[0].get('last_ap', '').lower().replace('-', ':')
+                        last_ap_name = ap_names.get(last_ap_mac, last_ap_mac)
+                        # If still on the same AP as last timeline entry, mark as still connected
+                        if last_ap_name == timeline[-1]['ap']:
+                            timeline[-1]['still_connected'] = True
+                            timeline[-1]['end'] = time.time()
+            except Exception:
+                pass  # If check fails, just use session data
 
         if format == "json":
             return json.dumps({'mac': mac, 'timeline': timeline}, indent=2)
 
         # Concise markdown table
         lines = [f"# Location: `{mac}`\n"]
-        lines.append("| Time | Duration | AP Name |")
-        lines.append("|------|----------|---------|")
+        lines.append("| Time | AP Name |")
+        lines.append("|------|---------|")
 
         for e in timeline[:100]:
-            t = datetime.fromtimestamp(e['t']).strftime('%m-%d %H:%M') if e['t'] else '?'
-            dur = e['dur']
-            if dur:
-                if dur < 60:
-                    d = f"{dur:.0f}s"
-                elif dur < 3600:
-                    d = f"{dur/60:.0f}m"
-                else:
-                    d = f"{dur/3600:.1f}h"
+            start_str = datetime.fromtimestamp(e['start']).strftime('%m-%d %H:%M')
+            if e.get('still_connected'):
+                end_str = "now"
+                duration_sec = time.time() - e['start']
             else:
-                d = '-'
-            lines.append(f"| {t} | {d} | {e['ap']} |")
+                end_str = datetime.fromtimestamp(e['end']).strftime('%H:%M')
+                duration_sec = e['end'] - e['start']
+            if duration_sec < 60:
+                dur_str = f"{duration_sec:.0f}s"
+            elif duration_sec < 3600:
+                dur_str = f"{duration_sec/60:.0f}m"
+            else:
+                dur_str = f"{duration_sec/3600:.1f}h"
+            lines.append(f"| {start_str} - {end_str} ({dur_str}) | {e['ap']} |")
 
         if len(timeline) > 100:
             lines.append(f"\n*+{len(timeline)-100} more*")
@@ -4740,7 +4787,6 @@ async def search_clients_by_location(
         -> Use with map_id for 3rd floor
     """
     import time
-    from datetime import datetime
 
     try:
         # Get map and its APs
