@@ -4593,6 +4593,210 @@ async def get_ap_radio_status(
 
 
 # ============================================================================
+# Location History / Device Tracking Tools
+# ============================================================================
+
+@mcp.tool()
+async def get_client_location_history(
+    site_id: str,
+    client_mac: str,
+    duration: int = 24,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Track a client device's location history over a time period.
+
+    Returns a concise timeline showing where the device was based on which
+    AP it connected to. Uses session data + AP names from device inventory.
+
+    Args:
+        site_id: Site UUID (get from list_sites)
+        client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
+        duration: Hours of history (default 24, max 168) - used if start/end not provided
+        start: Start time as "YYYY-MM-DD HH:MM" (optional, uses site timezone)
+        end: End time as "YYYY-MM-DD HH:MM" (optional, uses site timezone)
+        format: "markdown" for concise output, "json" for structured data
+
+    Returns:
+        Timeline of locations with time, AP name, and duration
+
+    Example:
+        User: "Where has device aa:bb:cc:dd:ee:ff been today?"
+        -> Use with client_mac="aa:bb:cc:dd:ee:ff", duration=24
+
+        User: "Track location yesterday 8am-4pm"
+        -> Use with start="2026-02-02 08:00", end="2026-02-02 16:00"
+    """
+    import time
+    from datetime import datetime
+
+    try:
+        # Handle start/end time parameters
+        if start and end:
+            try:
+                start_dt = datetime.strptime(start, "%Y-%m-%d %H:%M")
+                end_dt = datetime.strptime(end, "%Y-%m-%d %H:%M")
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError:
+                return "Error: Use format 'YYYY-MM-DD HH:MM' for start/end times"
+        else:
+            duration = min(duration, 168)
+            end_time = int(time.time())
+            start_time = end_time - (duration * 3600)
+        mac = client_mac.lower().replace("-", ":")
+
+        # Get sessions
+        sessions = await mist_api_request(
+            f"/sites/{site_id}/clients/sessions/search",
+            params={"mac": mac, "start": start_time, "end": end_time, "limit": 500}
+        )
+        results = sessions.get('results', sessions) if isinstance(sessions, dict) else sessions
+
+        if not results:
+            return f"No sessions found for `{client_mac}` in the specified time range."
+
+        # Get AP names from device stats (one API call)
+        ap_stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params={"type": "ap", "limit": 1000})
+        ap_names = {d.get('mac', '').lower(): d.get('name', d.get('mac', '?')) for d in ap_stats}
+
+        # Build compact timeline - dedupe by AP and consolidate
+        seen = set()
+        timeline = []
+        for s in results:
+            ap_mac = (s.get('ap_mac') or s.get('ap', '')).lower().replace('-', ':')
+            t = s.get('connect_time') or s.get('timestamp')
+            key = (ap_mac, int(t) if t else 0)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            ap_name = ap_names.get(ap_mac, ap_mac)
+            timeline.append({
+                't': t,
+                'dur': s.get('duration', 0),
+                'ap': ap_name,
+                'ap_mac': ap_mac
+            })
+
+        timeline.sort(key=lambda x: x['t'] or 0)
+
+        if format == "json":
+            return json.dumps({'mac': mac, 'timeline': timeline}, indent=2)
+
+        # Concise markdown table
+        lines = [f"# Location: `{mac}`\n"]
+        lines.append("| Time | Duration | AP Name |")
+        lines.append("|------|----------|---------|")
+
+        for e in timeline[:100]:
+            t = datetime.fromtimestamp(e['t']).strftime('%m-%d %H:%M') if e['t'] else '?'
+            dur = e['dur']
+            if dur:
+                if dur < 60:
+                    d = f"{dur:.0f}s"
+                elif dur < 3600:
+                    d = f"{dur/60:.0f}m"
+                else:
+                    d = f"{dur/3600:.1f}h"
+            else:
+                d = '-'
+            lines.append(f"| {t} | {d} | {e['ap']} |")
+
+        if len(timeline) > 100:
+            lines.append(f"\n*+{len(timeline)-100} more*")
+
+        return '\n'.join(lines)
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@mcp.tool()
+async def search_clients_by_location(
+    site_id: str,
+    map_id: str,
+    duration: int = 1,
+    limit: int = 50,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str:
+    """
+    Find all clients that have been on a specific floor plan.
+
+    Args:
+        site_id: Site UUID
+        map_id: Map/floor UUID (get from list_site_maps)
+        duration: Hours to search back (default 1)
+        limit: Max clients to return (default 50)
+        format: Response format
+
+    Returns:
+        List of clients seen on this floor with last seen time
+
+    Example:
+        User: "Who has been on the 3rd floor?"
+        -> Use with map_id for 3rd floor
+    """
+    import time
+    from datetime import datetime
+
+    try:
+        # Get map and its APs
+        map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
+        map_name = map_info.get('name', 'Map')
+        aps = {ap.get('mac', '').lower(): ap.get('name', 'AP') for ap in map_info.get('aps', []) if ap.get('mac')}
+
+        if not aps:
+            return f"No APs on {map_name}."
+
+        # Get sessions
+        end_time = int(time.time())
+        sessions = await mist_api_request(
+            f"/sites/{site_id}/clients/sessions/search",
+            params={"start": end_time - (duration * 3600), "end": end_time, "limit": 1000}
+        )
+        results = sessions.get('results', sessions) if isinstance(sessions, dict) else sessions
+
+        # Filter to clients on this map's APs
+        clients = {}
+        for s in results:
+            ap_mac = (s.get('ap_mac') or s.get('ap', '')).lower().replace('-', ':')
+            if ap_mac in aps:
+                mac = s.get('mac', '').lower()
+                t = s.get('connect_time') or s.get('timestamp')
+                if mac and (mac not in clients or t > clients[mac]['t']):
+                    clients[mac] = {
+                        't': t,
+                        'host': s.get('hostname', '?'),
+                        'ap': aps.get(ap_mac, 'AP')
+                    }
+
+        if not clients:
+            return f"No clients on {map_name} in last {duration}h."
+
+        if format == "json":
+            return json.dumps({'map': map_name, 'clients': clients}, indent=2)
+
+        lines = [f"# Clients on {map_name} ({duration}h)\n"]
+        lines.append("| MAC | Hostname | Last AP | Last Seen |")
+        lines.append("|-----|----------|---------|-----------|")
+
+        for mac, c in sorted(clients.items(), key=lambda x: x[1]['t'] or 0, reverse=True)[:limit]:
+            t = datetime.fromtimestamp(c['t']).strftime('%m-%d %H:%M') if c['t'] else '?'
+            lines.append(f"| `{mac}` | {c['host']} | {c['ap']} | {t} |")
+
+        if len(clients) > limit:
+            lines.append(f"\n*+{len(clients)-limit} more*")
+
+        return '\n'.join(lines)
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+# ============================================================================
 # Server Entry Point
 # ============================================================================
 
