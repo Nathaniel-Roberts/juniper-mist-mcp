@@ -1,12 +1,13 @@
 """SLE (Service Level Expectation) tools for the Juniper Mist MCP server."""
 
-import json
 import time
 from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import json_tool_result, local_timezone_name, truncate_response
 from ..server import READ_ONLY, mcp
 
 
@@ -41,13 +42,13 @@ def _build_sle_scope_path(
         # Default to site scope
         return f"site/{site_id}", None
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_metrics(
     site_id: str,
     scope: Literal["site", "ap", "client"] = "site",
     scope_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List available SLE (Service Level Expectation) metrics for a site.
 
@@ -88,7 +89,7 @@ async def get_sle_metrics(
         metrics = await mist_api_request(f"/sites/{site_id}/sle/{scope_path}/metrics")
 
         if format == "json":
-            return truncate_response(json.dumps(metrics, indent=2))
+            return json_tool_result(metrics)
 
         result = "# SLE Metrics\n\n"
         result += f"**Scope:** {scope}\n"
@@ -133,7 +134,7 @@ async def get_sle_metrics(
     except Exception as e:
         return f"Error getting SLE metrics: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_summary(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -141,7 +142,7 @@ async def get_sle_summary(
     scope_id: Optional[str] = None,
     duration: int = 24,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get SLE summary showing success rate for a specific metric.
 
@@ -189,7 +190,7 @@ async def get_sle_summary(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(summary, indent=2))
+            return json_tool_result(summary)
 
         result = f"# SLE Summary: {metric}\n\n"
         result += f"**Scope:** {scope}\n"
@@ -261,7 +262,7 @@ async def get_sle_summary(
     except Exception as e:
         return f"Error getting SLE summary: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_histogram(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -269,7 +270,7 @@ async def get_sle_histogram(
     scope_id: Optional[str] = None,
     duration: int = 24,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get SLE histogram showing time-series data for a metric.
 
@@ -314,7 +315,7 @@ async def get_sle_histogram(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(histogram, indent=2))
+            return json_tool_result(histogram)
 
         result = f"# SLE Histogram: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -354,6 +355,7 @@ async def get_sle_histogram(
                 # Otherwise, assume time-series data
                 else:
                     result += f"## Time Series Data ({len(data_points)} data points)\n\n"
+                    result += f"Times are {local_timezone_name()} (server local).\n\n"
                     result += "| Time | Total | Degraded | Success Rate |\n"
                     result += "|------|-------|----------|-------------|\n"
 
@@ -385,13 +387,13 @@ async def get_sle_histogram(
     except Exception as e:
         return f"Error getting SLE histogram: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_impact(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
     duration: int = 24,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get SLE impact analysis showing what's causing metric failures.
 
@@ -438,7 +440,7 @@ async def get_sle_impact(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(impact, indent=2))
+            return json_tool_result(impact)
 
         result = f"# SLE Impact Analysis: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -499,14 +501,14 @@ async def get_sle_impact(
     except Exception as e:
         return f"Error getting SLE impact: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_impacted_aps(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
     duration: int = 24,
     limit: int = 20,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get list of APs most impacted by SLE failures.
 
@@ -546,7 +548,7 @@ async def get_sle_impacted_aps(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(impacted, indent=2))
+            return json_tool_result(impacted)
 
         result = f"# Impacted APs: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -578,14 +580,14 @@ async def get_sle_impacted_aps(
     except Exception as e:
         return f"Error getting impacted APs: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_sle_impacted_clients(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
     duration: int = 24,
     limit: int = 20,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get list of clients most impacted by SLE failures.
 
@@ -625,7 +627,7 @@ async def get_sle_impacted_clients(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(impacted, indent=2))
+            return json_tool_result(impacted)
 
         result = f"# Impacted Clients: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"

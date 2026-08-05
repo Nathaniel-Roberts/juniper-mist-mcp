@@ -1,20 +1,20 @@
 """Wireless & RF tools for the Juniper Mist MCP server."""
 
-import json
 import time
-from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_wlans(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all WLANs (wireless networks) configured at a site.
 
@@ -43,7 +43,7 @@ async def list_wlans(
         wlans = await mist_api_request(f"/sites/{site_id}/wlans")
 
         if format == "json":
-            return truncate_response(json.dumps(wlans, indent=2))
+            return json_tool_result(wlans)
 
         if not wlans:
             return "# WLANs\n\nNo WLANs configured at this site."
@@ -88,11 +88,11 @@ async def list_wlans(
     except Exception as e:
         return f"Error listing WLANs: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_org_wlans(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all WLAN templates configured at the organization level.
 
@@ -113,7 +113,7 @@ async def list_org_wlans(
         wlans = await mist_api_request(f"/orgs/{org_id}/wlans")
 
         if format == "json":
-            return truncate_response(json.dumps(wlans, indent=2))
+            return json_tool_result(wlans)
 
         if not wlans:
             return "# Organization WLANs\n\nNo organization-level WLANs configured."
@@ -139,12 +139,12 @@ async def list_org_wlans(
     except Exception as e:
         return f"Error listing org WLANs: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_rf_stats(
     site_id: str,
     band: Literal["24", "5", "6", "all"] = "all",
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get RF (radio frequency) environment statistics for a site.
 
@@ -176,7 +176,7 @@ async def get_rf_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         if not stats:
             return "# RF Statistics\n\nNo access points found at this site."
@@ -236,13 +236,13 @@ async def get_rf_stats(
     except Exception as e:
         return f"Error getting RF stats: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_ap_radio_status(
     site_id: str,
     ap_mac: Optional[str] = None,
     band: Literal["24", "5", "6", "all"] = "all",
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get current radio status and channel assignments for APs.
 
@@ -277,7 +277,7 @@ async def get_ap_radio_status(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         result = "# AP Radio Status\n\n"
 
@@ -334,12 +334,12 @@ async def get_ap_radio_status(
     except Exception as e:
         return f"Error getting AP radio status: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_rogue_aps(
     site_id: str,
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get detected rogue access points at a site.
 
@@ -370,7 +370,7 @@ async def get_rogue_aps(
         rogues = await mist_api_request(f"/sites/{site_id}/insights/rogues", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(rogues, indent=2))
+            return json_tool_result(rogues)
 
         results_list = rogues.get('results', rogues) if isinstance(rogues, dict) else rogues
 
@@ -397,7 +397,7 @@ async def get_rogue_aps(
                 result += f"- **Detected By AP:** {rogue['ap_mac']}\n"
 
             if 'last_seen' in rogue:
-                ts = datetime.fromtimestamp(rogue['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
+                ts = format_timestamp(rogue['last_seen'])
                 result += f"- **Last Seen:** {ts}\n"
 
             result += "\n"
@@ -407,13 +407,13 @@ async def get_rogue_aps(
     except Exception as e:
         return f"Error getting rogue APs: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_site_insights(
     site_id: str,
     metric: str = "bytes",
     duration: int = 24,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get site-level network insights and analytics.
 
@@ -446,7 +446,7 @@ async def get_site_insights(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(insights, indent=2))
+            return json_tool_result(insights)
 
         result = f"# Site Insights: {metric}\n\n"
         result += f"**Time Range:** Last {duration} hours\n\n"

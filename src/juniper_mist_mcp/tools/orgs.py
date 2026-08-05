@@ -1,17 +1,18 @@
 """Organization & site tools for the Juniper Mist MCP server."""
 
-import json
 from typing import Literal
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import format_as_markdown, truncate_response
+from ..formatting import json_tool_result, format_as_markdown, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_organizations(
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all Mist organizations accessible with your API token.
 
@@ -48,7 +49,7 @@ async def list_organizations(
                     })
 
         if format == "json":
-            return truncate_response(json.dumps(orgs, indent=2))
+            return json_tool_result(orgs)
 
         # Format as markdown
         if not orgs:
@@ -68,11 +69,11 @@ async def list_organizations(
     except Exception as e:
         return f"Error listing organizations: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_organization_info(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get detailed information about a specific organization.
 
@@ -98,18 +99,18 @@ async def get_organization_info(
         org = await mist_api_request(f"/orgs/{org_id}")
 
         if format == "json":
-            return truncate_response(json.dumps(org, indent=2))
+            return json_tool_result(org)
 
         return truncate_response(format_as_markdown(org, f"Organization: {org.get('name', org_id)}"))
 
     except Exception as e:
         return f"Error getting organization info: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_sites(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all sites within an organization.
 
@@ -134,7 +135,7 @@ async def list_sites(
         sites = await mist_api_request(f"/orgs/{org_id}/sites")
 
         if format == "json":
-            return truncate_response(json.dumps(sites, indent=2))
+            return json_tool_result(sites)
 
         if not sites:
             return f"# Sites in Organization {org_id}\n\nNo sites found."
@@ -160,11 +161,11 @@ async def list_sites(
     except Exception as e:
         return f"Error listing sites: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_site_info(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get detailed information about a specific site.
 
@@ -190,7 +191,7 @@ async def get_site_info(
         site = await mist_api_request(f"/sites/{site_id}")
 
         if format == "json":
-            return truncate_response(json.dumps(site, indent=2))
+            return json_tool_result(site)
 
         result = f"# Site: {site.get('name', 'Unnamed Site')}\n\n"
         result += f"- **Site ID:** `{site['id']}`\n"
@@ -224,11 +225,11 @@ async def get_site_info(
     except Exception as e:
         return f"Error getting site info: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_site_stats(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get real-time statistics and health metrics for a site.
 
@@ -253,7 +254,7 @@ async def get_site_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats")
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         result = "# Site Statistics\n\n"
 
@@ -287,11 +288,11 @@ async def get_site_stats(
     except Exception as e:
         return f"Error getting site stats: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_stats_summary(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get a high-level summary of network statistics across the organization.
 
@@ -321,7 +322,7 @@ async def get_org_stats_summary(
         org_stats = await mist_api_request(f"/orgs/{org_id}/stats")
 
         if format == "json":
-            return truncate_response(json.dumps(org_stats, indent=2))
+            return json_tool_result(org_stats)
 
         result = "# Organization Network Summary\n\n"
 

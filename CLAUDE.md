@@ -42,17 +42,24 @@ test in `tests/test_stdio.py` covers the real server startup path.
 Every tool follows the same pattern — copy an existing one in the right
 `tools/` module:
 
-- `@mcp.tool(annotations=READ_ONLY)` on an async function. All Phase 1
-  tools are read-only; do not add a write tool without the confirmation
-  pattern (see Phase 2 below).
+- `@mcp.tool(annotations=READ_ONLY, structured_output=False)` on an async
+  function. All Phase 1 tools are read-only; do not add a write tool
+  without the confirmation pattern (see Phase 2 below).
+  `structured_output=False` is required — it lets tools return
+  `CallToolResult` per call without the SDK generating an output schema.
 - Parameters validated with `Literal[...]` types where the API accepts an
   enum; `format: Literal["json", "markdown"] = "markdown"` on everything.
 - Call the API only through `mist_api_request()` (shared client, auth,
   friendly errors, one automatic 429 retry). It raises `MistAPIError`.
 - Wrap the body in try/except and return `f"Error <doing X>: {e}"` —
   tools return error strings rather than raising.
-- Every return path goes through `truncate_response()` (25k char cap),
-  including `format="json"` ones.
+- Markdown returns go through `truncate_response()` (25k char cap).
+  `format="json"` returns go through `json_tool_result(data)`, which
+  emits truncated JSON text plus `structuredContent` (omitted when the
+  payload exceeds the cap — never bypass that).
+- Render epoch timestamps with `format_timestamp()` (server-local time
+  with the zone visible); compact tables may keep short formats but must
+  carry a `local_timezone_name()` note.
 - Docstring must include: summary, Args, Returns, an Example block with
   user phrasing, and Error Handling notes. The docstring is the tool
   description the model sees — write it for tool selection.

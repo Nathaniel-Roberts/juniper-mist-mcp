@@ -1,21 +1,21 @@
 """Device tools for the Juniper Mist MCP server."""
 
-import json
-from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_inventory(
     org_id: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get inventory of all devices in an organization.
 
@@ -47,7 +47,7 @@ async def get_device_inventory(
         inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(inventory, indent=2))
+            return json_tool_result(inventory)
 
         if not inventory:
             return "# Device Inventory\n\nNo devices found in inventory."
@@ -88,7 +88,7 @@ async def get_device_inventory(
     except Exception as e:
         return f"Error getting device inventory: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_stats(
     org_id: str,
     site_id: str,
@@ -96,7 +96,7 @@ async def get_device_stats(
     status: Literal["connected", "disconnected", "all"] = "all",
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get real-time statistics for devices in an organization or site.
 
@@ -133,7 +133,7 @@ async def get_device_stats(
         stats = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         if not stats:
             return "# Device Statistics\n\nNo devices found matching the filters."
@@ -164,14 +164,14 @@ async def get_device_stats(
     except Exception as e:
         return f"Error getting device statistics: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_organization_devices(
     org_id: str,
     search_term: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Search for devices by name, MAC address, serial number, or model.
 
@@ -280,7 +280,7 @@ async def search_organization_devices(
         matches = unique_matches
 
         if format == "json":
-            return truncate_response(json.dumps(matches, indent=2))
+            return json_tool_result(matches)
 
         if not matches:
             return f"# Device Search Results\n\nNo devices found matching '{search_term}'."
@@ -306,12 +306,12 @@ async def search_organization_devices(
     except Exception as e:
         return f"Error searching devices: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_config(
     site_id: str,
     device_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get the configuration of a specific device.
 
@@ -338,7 +338,7 @@ async def get_device_config(
         config = await mist_api_request(f"/sites/{site_id}/devices/{device_id}")
 
         if format == "json":
-            return truncate_response(json.dumps(config, indent=2))
+            return json_tool_result(config)
 
         result = "# Device Configuration\n\n"
         result += f"- **Name:** {config.get('name', 'N/A')}\n"
@@ -379,14 +379,14 @@ async def get_device_config(
     except Exception as e:
         return f"Error getting device config: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_events(
     site_id: str,
     device_mac: Optional[str] = None,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get recent events for devices at a site.
 
@@ -423,7 +423,7 @@ async def get_device_events(
         events = await mist_api_request(f"/sites/{site_id}/devices/events/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(events, indent=2))
+            return json_tool_result(events)
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -438,7 +438,7 @@ async def get_device_events(
             result += f"## {event_type}\n\n"
 
             if 'timestamp' in event:
-                ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                ts = format_timestamp(event['timestamp'])
                 result += f"- **Time:** {ts}\n"
 
             if 'device_name' in event:
@@ -459,13 +459,13 @@ async def get_device_events(
     except Exception as e:
         return f"Error getting device events: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_switch_port_stats(
     site_id: str,
     switch_mac: Optional[str] = None,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get switch port statistics including status, speed, and traffic.
 
@@ -499,7 +499,7 @@ async def get_switch_port_stats(
         response = await mist_api_request(f"/sites/{site_id}/stats/switch_ports/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(response, indent=2))
+            return json_tool_result(response)
 
         # Extract results from search response
         ports = response.get('results', response) if isinstance(response, dict) else response

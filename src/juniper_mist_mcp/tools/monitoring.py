@@ -1,21 +1,21 @@
 """Monitoring tools for the Juniper Mist MCP server."""
 
-import json
-from datetime import datetime
 from typing import Literal
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_alarms(
     org_id: str,
     severity: Literal["critical", "warn", "info", "all"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get active alarms and alerts for an organization.
 
@@ -50,7 +50,7 @@ async def get_alarms(
         response = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(response, indent=2))
+            return json_tool_result(response)
 
         # Extract alarms from the results key
         alarms = response.get("results", []) if isinstance(response, dict) else response
@@ -93,14 +93,14 @@ async def get_alarms(
     except Exception as e:
         return f"Error getting alarms: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_marvis_actions(
     org_id: str,
     category: Literal["all", "wired", "wireless", "wan", "switch", "ap", "gateway"] = "all",
     status: Literal["all", "open", "resolved"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get Marvis AI-generated action alerts and recommendations.
 
@@ -146,7 +146,7 @@ async def get_marvis_actions(
         actions = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(actions, indent=2))
+            return json_tool_result(actions)
 
         # Handle response format (could be list or dict with results)
         results_list = actions.get('results', actions) if isinstance(actions, dict) else actions
@@ -210,10 +210,10 @@ async def get_marvis_actions(
 
                 # Timestamp
                 if 'timestamp' in action:
-                    ts = datetime.fromtimestamp(action['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(action['timestamp'])
                     result += f"- **Detected:** {ts}\n"
                 elif 'last_seen' in action:
-                    ts = datetime.fromtimestamp(action['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(action['last_seen'])
                     result += f"- **Last Seen:** {ts}\n"
 
                 # Description/details
@@ -235,11 +235,11 @@ async def get_marvis_actions(
     except Exception as e:
         return f"Error getting Marvis actions: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_site_wan_stats(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get WAN (internet) connection statistics for a site.
 
@@ -268,7 +268,7 @@ async def get_site_wan_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params={"type": "gateway"})
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         if not stats:
             return "# WAN Statistics\n\nNo gateway devices found at this site."

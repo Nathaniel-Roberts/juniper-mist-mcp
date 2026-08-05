@@ -1,6 +1,45 @@
-"""Markdown formatting helpers."""
+"""Markdown formatting and tool-result helpers."""
 
+import json
+from datetime import datetime
 from typing import Any
+
+from mcp.types import CallToolResult, TextContent
+
+
+def local_timezone_name() -> str:
+    """Short name of the server's local timezone (e.g. AEST)."""
+    return datetime.now().astimezone().strftime('%Z')
+
+
+def format_timestamp(ts: float) -> str:
+    """
+    Render an epoch timestamp in the server's local timezone, zone visible.
+
+    Example: "2026-08-05 12:01:33 AEST"
+    """
+    return datetime.fromtimestamp(ts).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')
+
+
+def json_tool_result(data: Any) -> CallToolResult:
+    """
+    Build a tool result for format="json" responses.
+
+    Carries the data twice: as pretty-printed (and truncated) JSON text
+    for readability, and as structuredContent for machine consumption.
+    structuredContent is omitted when the payload exceeds the text cap,
+    so oversized responses cannot bypass truncation.
+    """
+    text = json.dumps(data, indent=2)
+    structured = data if isinstance(data, dict) else {"results": data}
+    if len(text) <= 25000:
+        return CallToolResult(
+            content=[TextContent(type="text", text=text)],
+            structuredContent=structured,
+        )
+    return CallToolResult(
+        content=[TextContent(type="text", text=truncate_response(text))],
+    )
 
 
 def format_as_markdown(data: Any, title: str) -> str:

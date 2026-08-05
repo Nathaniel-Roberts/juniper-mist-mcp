@@ -1,22 +1,22 @@
 """Client troubleshooting tools for the Juniper Mist MCP server."""
 
-import json
 import time
-from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_stats(
     org_id: str,
     site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get statistics about connected wireless clients.
 
@@ -50,7 +50,7 @@ async def get_client_stats(
         clients = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(clients, indent=2))
+            return json_tool_result(clients)
 
         if not clients:
             return "# Connected Clients\n\nNo clients currently connected to site."
@@ -81,12 +81,12 @@ async def get_client_stats(
     except Exception as e:
         return f"Error getting client statistics: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_by_mac(
     org_id: str,
     client_mac: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Look up detailed information about a client by MAC address.
 
@@ -125,7 +125,7 @@ async def get_client_by_mac(
         clients = await mist_api_request(f"/orgs/{org_id}/clients/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(clients, indent=2))
+            return json_tool_result(clients)
 
         results_list = clients.get('results', clients) if isinstance(clients, dict) else clients
 
@@ -203,13 +203,13 @@ async def get_client_by_mac(
         # Timestamps
         result += "\n## Timestamps\n\n"
         if client.get('last_seen'):
-            ts = datetime.fromtimestamp(client['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
+            ts = format_timestamp(client['last_seen'])
             result += f"- **Last Seen:** {ts}\n"
         if client.get('first_seen'):
-            ts = datetime.fromtimestamp(client['first_seen']).strftime('%Y-%m-%d %H:%M:%S')
+            ts = format_timestamp(client['first_seen'])
             result += f"- **First Seen:** {ts}\n"
         if client.get('connect_time'):
-            ts = datetime.fromtimestamp(client['connect_time']).strftime('%Y-%m-%d %H:%M:%S')
+            ts = format_timestamp(client['connect_time'])
             result += f"- **Connected At:** {ts}\n"
 
         return truncate_response(result)
@@ -217,7 +217,7 @@ async def get_client_by_mac(
     except Exception as e:
         return f"Error looking up client: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_client_events(
     site_id: str,
     client_mac: Optional[str] = None,
@@ -226,7 +226,7 @@ async def search_client_events(
     duration: int = 24,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Search for wireless client events at a site for troubleshooting.
 
@@ -281,7 +281,7 @@ async def search_client_events(
         events = await mist_api_request(f"/sites/{site_id}/clients/events/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(events, indent=2))
+            return json_tool_result(events)
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -326,7 +326,7 @@ async def search_client_events(
 
             for event in type_events[:20]:  # Show up to 20 per type
                 if 'timestamp' in event:
-                    ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(event['timestamp'])
                     result += f"### {ts}\n\n"
 
                 result += f"- **Client MAC:** {event.get('mac', 'N/A')}\n"
@@ -369,13 +369,13 @@ async def search_client_events(
     except Exception as e:
         return f"Error searching client events: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_session_history(
     site_id: str,
     client_mac: str,
     duration: int = 24,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get detailed session history for a specific wireless client.
 
@@ -416,7 +416,7 @@ async def get_client_session_history(
         sessions = await mist_api_request(f"/sites/{site_id}/clients/sessions/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(sessions, indent=2))
+            return json_tool_result(sessions)
 
         results_list = sessions.get('results', sessions) if isinstance(sessions, dict) else sessions
 
@@ -434,9 +434,9 @@ async def get_client_session_history(
             # Connection times
             if 'connect_time' in session or 'timestamp' in session:
                 connect_ts = session.get('connect_time') or session.get('timestamp')
-                result += f"- **Connected:** {datetime.fromtimestamp(connect_ts).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                result += f"- **Connected:** {format_timestamp(connect_ts)}\n"
             if 'disconnect_time' in session:
-                result += f"- **Disconnected:** {datetime.fromtimestamp(session['disconnect_time']).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                result += f"- **Disconnected:** {format_timestamp(session['disconnect_time'])}\n"
             if 'duration' in session:
                 dur_min = session['duration'] / 60
                 result += f"- **Duration:** {dur_min:.1f} minutes\n"
@@ -500,7 +500,7 @@ async def get_client_session_history(
     except Exception as e:
         return f"Error getting client session history: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_wired_client_events(
     site_id: str,
     client_mac: Optional[str] = None,
@@ -510,7 +510,7 @@ async def search_wired_client_events(
     duration: int = 24,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Search for wired client events at a site.
 
@@ -564,7 +564,7 @@ async def search_wired_client_events(
         events = await mist_api_request(f"/sites/{site_id}/wired_clients/events/search", params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(events, indent=2))
+            return json_tool_result(events)
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -589,7 +589,7 @@ async def search_wired_client_events(
 
             for event in type_events[:25]:
                 if 'timestamp' in event:
-                    ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(event['timestamp'])
                     result += f"### {ts}\n\n"
 
                 result += f"- **Client MAC:** {event.get('mac', 'N/A')}\n"

@@ -1,12 +1,18 @@
 """Maps, assets & location tools for the Juniper Mist MCP server."""
 
-import json
 import time
 from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import (
+    format_timestamp,
+    json_tool_result,
+    local_timezone_name,
+    truncate_response,
+)
 from ..server import READ_ONLY, mcp
 
 
@@ -27,11 +33,11 @@ async def _get_map_aps(site_id: str, map_id: str, map_info: Optional[dict] = Non
         placed = map_info['aps']
     return placed
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_site_maps(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all floor plans/maps configured for a site.
 
@@ -60,7 +66,7 @@ async def list_site_maps(
         maps = await mist_api_request(f"/sites/{site_id}/maps")
 
         if format == "json":
-            return truncate_response(json.dumps(maps, indent=2))
+            return json_tool_result(maps)
 
         if not maps:
             return "# Site Maps\n\nNo maps/floor plans configured for this site."
@@ -112,12 +118,12 @@ async def list_site_maps(
     except Exception as e:
         return f"Error listing site maps: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_map_info(
     site_id: str,
     map_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get detailed information about a specific map/floor plan.
 
@@ -150,7 +156,7 @@ async def get_map_info(
         aps = await _get_map_aps(site_id, map_id, map_info)
 
         if format == "json":
-            return truncate_response(json.dumps({**map_info, "aps": aps}, indent=2))
+            return json_tool_result({**map_info, "aps": aps})
 
         name = map_info.get('name', 'Unnamed Map')
         result = f"# Map: {name}\n\n"
@@ -216,11 +222,11 @@ async def get_map_info(
     except Exception as e:
         return f"Error getting map info: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_zones(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List all location zones configured at a site.
 
@@ -249,7 +255,7 @@ async def list_zones(
         zones = await mist_api_request(f"/sites/{site_id}/zones")
 
         if format == "json":
-            return truncate_response(json.dumps(zones, indent=2))
+            return json_tool_result(zones)
 
         if not zones:
             return "# Location Zones\n\nNo zones configured for this site."
@@ -288,12 +294,12 @@ async def list_zones(
     except Exception as e:
         return f"Error listing zones: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_assets(
     site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     List BLE assets configured at a site.
 
@@ -326,7 +332,7 @@ async def list_assets(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(assets, indent=2))
+            return json_tool_result(assets)
 
         # Format as markdown
         result = "# BLE Assets\n\n"
@@ -368,12 +374,12 @@ async def list_assets(
     except Exception as e:
         return f"Error listing assets: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_asset_stats(
     site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get real-time statistics for BLE assets at a site.
 
@@ -406,7 +412,7 @@ async def get_asset_stats(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(stats, indent=2))
+            return json_tool_result(stats)
 
         # Format as markdown
         result = "# Asset Statistics\n\n"
@@ -435,8 +441,7 @@ async def get_asset_stats(
 
             # Last seen
             if stat.get('last_seen'):
-                last_seen = datetime.fromtimestamp(stat['last_seen'])
-                result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                result += f"- **Last Seen:** {format_timestamp(stat['last_seen'])}\n"
 
             # Battery
             if stat.get('battery_voltage'):
@@ -453,13 +458,13 @@ async def get_asset_stats(
     except Exception as e:
         return f"Error getting asset stats: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_assets(
     site_id: str,
     search_term: str,
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Search for BLE assets by name or MAC address.
 
@@ -504,7 +509,7 @@ async def search_assets(
                     break
 
         if format == "json":
-            return truncate_response(json.dumps(matched, indent=2))
+            return json_tool_result(matched)
 
         # Format as markdown
         result = f"# Asset Search Results for '{search_term}'\n\n"
@@ -534,12 +539,12 @@ async def search_assets(
     except Exception as e:
         return f"Error searching assets: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_discovered_assets(
     site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get discovered but unassigned BLE devices at a site.
 
@@ -572,7 +577,7 @@ async def get_discovered_assets(
         )
 
         if format == "json":
-            return truncate_response(json.dumps(discovered, indent=2))
+            return json_tool_result(discovered)
 
         # Format as markdown
         result = "# Discovered BLE Devices\n\n"
@@ -602,8 +607,7 @@ async def get_discovered_assets(
 
             # Last seen
             if device.get('last_seen'):
-                last_seen = datetime.fromtimestamp(device['last_seen'])
-                result += f"- **Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                result += f"- **Last Seen:** {format_timestamp(device['last_seen'])}\n"
 
             # iBeacon info if present
             if device.get('ibeacon_uuid'):
@@ -620,7 +624,7 @@ async def get_discovered_assets(
     except Exception as e:
         return f"Error getting discovered assets: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_location_history(
     site_id: str,
     client_mac: str,
@@ -628,7 +632,7 @@ async def get_client_location_history(
     start: Optional[str] = None,
     end: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Track a client device's location history over a time period.
 
@@ -750,10 +754,11 @@ async def get_client_location_history(
                 pass  # If check fails, just use session data
 
         if format == "json":
-            return truncate_response(json.dumps({'mac': mac, 'timeline': timeline}, indent=2))
+            return json_tool_result({'mac': mac, 'timeline': timeline})
 
         # Concise markdown table
         lines = [f"# Location: `{mac}`\n"]
+        lines.append(f"Times are {local_timezone_name()} (server local).\n")
         lines.append("| Time | AP Name |")
         lines.append("|------|---------|")
 
@@ -781,14 +786,14 @@ async def get_client_location_history(
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_clients_by_location(
     site_id: str,
     map_id: str,
     duration: int = 1,
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Find all clients that have been on a specific floor plan.
 
@@ -843,10 +848,27 @@ async def search_clients_by_location(
         if not clients:
             return f"No clients on {map_name} in last {duration}h."
 
+        # Sessions often omit hostnames; enrich from current client stats (one call)
+        if any(not c['host'] or c['host'] == '?' for c in clients.values()):
+            try:
+                live = await mist_api_request(
+                    f"/sites/{site_id}/stats/clients", params={"limit": 1000}
+                )
+                names = {
+                    lc.get('mac', '').lower(): lc['hostname']
+                    for lc in live if lc.get('hostname')
+                }
+                for mac, c in clients.items():
+                    if (not c['host'] or c['host'] == '?') and mac in names:
+                        c['host'] = names[mac]
+            except Exception:
+                pass  # enrichment is best-effort
+
         if format == "json":
-            return truncate_response(json.dumps({'map': map_name, 'clients': clients}, indent=2))
+            return json_tool_result({'map': map_name, 'clients': clients})
 
         lines = [f"# Clients on {map_name} ({duration}h)\n"]
+        lines.append(f"Times are {local_timezone_name()} (server local).\n")
         lines.append("| MAC | Hostname | Last AP | Last Seen |")
         lines.append("|-----|----------|---------|-----------|")
 

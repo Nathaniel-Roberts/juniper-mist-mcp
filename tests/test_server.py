@@ -101,8 +101,37 @@ async def test_json_format_is_truncated(mock_api):
     big = [{"mac": f"aa:bb:cc:dd:ee:{i:02x}", "notes": "x" * 500} for i in range(200)]
     mock_api(lambda request: httpx.Response(200, json=big))
     out = await jm.get_device_stats(org_id="o", site_id="s", format="json")
-    assert len(out) < 26000
-    assert "truncated" in out
+    text = out.content[0].text
+    assert len(text) < 26000
+    assert "truncated" in text
+    # oversized payloads must not sneak through as structured content
+    assert out.structured_content is None
+
+
+async def test_json_format_returns_structured_content(mock_api):
+    data = [{"mac": "aa:bb:cc:dd:ee:01", "status": "connected"}]
+    mock_api(lambda request: httpx.Response(200, json=data))
+    out = await jm.get_device_stats(org_id="o", site_id="s", format="json")
+    # lists are wrapped so structuredContent is always an object
+    assert out.structured_content == {"results": data}
+    assert "aa:bb:cc:dd:ee:01" in out.content[0].text
+
+
+async def test_structured_content_reaches_mcp_layer(mock_api):
+    data = {"privileges": [{"scope": "org", "org_id": "o1", "name": "Org", "role": "admin"}]}
+    mock_api(lambda request: httpx.Response(200, json=data))
+    result = await jm.mcp.call_tool("list_organizations", {"format": "json"})
+    assert result.is_error is False
+    assert result.structured_content == {
+        "results": [{"id": "o1", "name": "Org", "role": "admin"}]
+    }
+
+
+def test_format_timestamp_shows_timezone():
+    out = jm.format_timestamp(1754358000)
+    assert out.count(":") == 2
+    tz = out.rsplit(" ", 1)[1]
+    assert tz and not tz[0].isdigit()  # e.g. AEST, not a bare time
 
 
 def test_truncate_response_passthrough():
@@ -156,7 +185,7 @@ async def test_get_map_info_lists_placed_aps(mock_api):
 async def test_get_map_info_json_includes_placed_aps(mock_api):
     mock_api(_map_and_devices_handler)
     out = await jm.get_map_info(site_id="s", map_id=MAP_ID, format="json")
-    data = __import__("json").loads(out)
+    data = out.structured_content
     assert [ap["name"] for ap in data["aps"]] == ["Lib-NorthEast", "Lib-West"]
 
 
@@ -165,6 +194,30 @@ async def test_search_clients_by_location_matches_real_fields(mock_api):
     out = await jm.search_clients_by_location(site_id="s", map_id=MAP_ID)
     assert "on-floor-laptop" in out
     assert "wrong-floor" not in out
+
+
+async def test_search_clients_by_location_enriches_hostnames(mock_api):
+    now = int(time.time())
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith(f"/maps/{MAP_ID}"):
+            return httpx.Response(200, json={"id": MAP_ID, "name": "Floor"})
+        if path.endswith("/devices"):
+            return httpx.Response(200, json=[
+                {"mac": "aa:aa:aa:aa:aa:01", "name": "AP-One", "map_id": MAP_ID}])
+        if "clients/sessions/search" in path:
+            # sessions without hostnames, as the live API often returns
+            return httpx.Response(200, json={"results": [
+                {"mac": "de:ad:be:ef:00:01", "ap": "aa:aa:aa:aa:aa:01", "connect": now - 60}]})
+        if path.endswith("/stats/clients"):
+            return httpx.Response(200, json=[
+                {"mac": "DE:AD:BE:EF:00:01", "hostname": "KristyHcBookAir"}])
+        return httpx.Response(500, text=f"unexpected path {path}")
+
+    mock_api(handler)
+    out = await jm.search_clients_by_location(site_id="s", map_id=MAP_ID)
+    assert "KristyHcBookAir" in out
 
 
 async def test_client_location_history_builds_timeline(mock_api):

@@ -88,7 +88,7 @@ claude mcp list
 
 ## Available Tools
 
-All 47 tools are read-only (each carries the MCP `readOnlyHint` annotation); nothing here can change your network.
+All 47 tools are read-only (each carries the MCP `readOnlyHint` annotation); nothing here can change your network. Every tool takes `format: "markdown" | "json"`; JSON responses include MCP `structuredContent` alongside the text so clients get machine-readable data.
 
 ### Organizations & Sites
 - `list_organizations` - See all your organizations

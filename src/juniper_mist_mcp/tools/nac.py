@@ -1,16 +1,16 @@
 """NAC & authentication tools for the Juniper Mist MCP server."""
 
-import json
 import time
-from datetime import datetime
 from typing import Literal, Optional
 
+from mcp.types import CallToolResult
+
 from ..api import mist_api_request
-from ..formatting import truncate_response
+from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_nac_client_events(
     org_id: str,
     site_id: Optional[str] = None,
@@ -21,7 +21,7 @@ async def search_nac_client_events(
     duration: int = 24,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Search NAC (Network Access Control) authentication events.
 
@@ -84,7 +84,7 @@ async def search_nac_client_events(
         events = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return truncate_response(json.dumps(events, indent=2))
+            return json_tool_result(events)
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -111,7 +111,7 @@ async def search_nac_client_events(
             result += f"## Authentication Failures ({len(failures)})\n\n"
             for event in failures[:30]:
                 if 'timestamp' in event:
-                    ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(event['timestamp'])
                     result += f"### {ts}\n\n"
 
                 result += f"- **Client MAC:** {event.get('mac', 'N/A')}\n"
@@ -147,7 +147,7 @@ async def search_nac_client_events(
             result += f"## Authentication Successes ({len(successes)})\n\n"
             for event in successes[:20]:
                 if 'timestamp' in event:
-                    ts = datetime.fromtimestamp(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = format_timestamp(event['timestamp'])
                     result += f"### {ts}\n\n"
 
                 result += f"- **Client MAC:** {event.get('mac', 'N/A')}\n"
@@ -184,11 +184,11 @@ async def search_nac_client_events(
     except Exception as e:
         return f"Error searching NAC events: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_rules(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get NAC (Network Access Control) rules and policies.
 
@@ -218,7 +218,7 @@ async def get_nac_rules(
         rules = await mist_api_request(f"/orgs/{org_id}/nacrules")
 
         if format == "json":
-            return truncate_response(json.dumps(rules, indent=2))
+            return json_tool_result(rules)
 
         if not rules:
             return "# NAC Rules\n\nNo NAC rules configured in this organization."
@@ -294,11 +294,11 @@ async def get_nac_rules(
     except Exception as e:
         return f"Error getting NAC rules: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_tags(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get NAC tags (labels/roles) configured in the organization.
 
@@ -326,7 +326,7 @@ async def get_nac_tags(
         tags = await mist_api_request(f"/orgs/{org_id}/nactags")
 
         if format == "json":
-            return truncate_response(json.dumps(tags, indent=2))
+            return json_tool_result(tags)
 
         if not tags:
             return "# NAC Tags\n\nNo NAC tags configured in this organization."
@@ -370,11 +370,11 @@ async def get_nac_tags(
     except Exception as e:
         return f"Error getting NAC tags: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_radius_config(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get RADIUS and authentication server configurations.
 
@@ -412,7 +412,7 @@ async def get_org_radius_config(
                 'mist_nac': org_settings.get('mist_nac', {}),
                 'coa_servers': org_settings.get('coa_servers', [])
             }
-            return truncate_response(json.dumps(radius_config, indent=2))
+            return json_tool_result(radius_config)
 
         result = "# RADIUS & Authentication Configuration\n\n"
 
@@ -475,11 +475,11 @@ async def get_org_radius_config(
     except Exception as e:
         return f"Error getting RADIUS config: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_idps(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get Identity Provider (IdP) configurations for NAC.
 
@@ -509,7 +509,7 @@ async def get_org_idps(
         idps = await mist_api_request(f"/orgs/{org_id}/ssos")
 
         if format == "json":
-            return truncate_response(json.dumps(idps, indent=2))
+            return json_tool_result(idps)
 
         if not idps:
             return "# Identity Providers\n\nNo Identity Providers configured."
@@ -569,7 +569,7 @@ async def get_org_idps(
     except Exception as e:
         return f"Error getting IdPs: {str(e)}"
 
-@mcp.tool(annotations=READ_ONLY)
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_portal_logs(
     org_id: str,
     site_id: Optional[str] = None,
@@ -577,7 +577,7 @@ async def get_nac_portal_logs(
     duration: int = 24,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
-) -> str:
+) -> str | CallToolResult:
     """
     Get NAC portal (guest/sponsor) authentication logs.
 
@@ -636,7 +636,7 @@ async def get_nac_portal_logs(
         except Exception:
             # Fall back to listing configured portals
             if format == "json":
-                return truncate_response(json.dumps({"portals": portals, "logs": []}, indent=2))
+                return json_tool_result({"portals": portals, "logs": []})
 
             result = "# NAC Portals\n\n"
             result += f"Found {len(portals)} NAC portal(s) configured:\n\n"
@@ -652,7 +652,7 @@ async def get_nac_portal_logs(
             return truncate_response(result)
 
         if format == "json":
-            return truncate_response(json.dumps(logs, indent=2))
+            return json_tool_result(logs)
 
         results_list = logs.get('results', logs) if isinstance(logs, dict) else logs
 
@@ -664,7 +664,7 @@ async def get_nac_portal_logs(
 
         for log in results_list[:limit]:
             if 'timestamp' in log:
-                ts = datetime.fromtimestamp(log['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                ts = format_timestamp(log['timestamp'])
                 result += f"## {ts}\n\n"
 
             result += f"- **Type:** {log.get('type', 'N/A')}\n"
