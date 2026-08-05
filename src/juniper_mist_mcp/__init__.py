@@ -63,6 +63,7 @@ from .tools.monitoring import (  # noqa: F401
 )
 from .tools.clients import (  # noqa: F401
     troubleshoot_client,
+    count_client_events,
     get_client_stats,
     get_client_by_mac,
     search_client_events,

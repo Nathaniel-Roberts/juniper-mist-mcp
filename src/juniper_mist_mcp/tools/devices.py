@@ -4,8 +4,20 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import get_org_sites, mist_api_request, resolve_org_id, resolve_site_id
-from ..formatting import format_timestamp, json_tool_result, truncate_response
+from ..api import (
+    MistAPIError,
+    get_org_sites,
+    is_uuid,
+    mist_api_request,
+    resolve_org_id,
+    resolve_site_id,
+)
+from ..formatting import (
+    format_dict_as_markdown,
+    format_timestamp,
+    json_tool_result,
+    truncate_response,
+)
 from ..server import READ_ONLY, mcp
 
 
@@ -477,37 +489,125 @@ async def search_organization_devices(
     except Exception as e:
         return f"Error searching devices: {str(e)}"
 
+async def _resolve_device_id(site_id: str, device: str) -> str:
+    """
+    Accept a device UUID, MAC address, or name; return the device UUID.
+
+    Names match against the site's device list: exact (case-insensitive)
+    first, then unique substring.
+    """
+    d = (device or "").strip()
+    if is_uuid(d):
+        return d
+
+    # The endpoint's type parameter defaults to "ap"; ask for everything
+    devices = await mist_api_request(
+        f"/sites/{site_id}/devices", params={"type": "all", "limit": 1000}
+    )
+
+    norm_mac = d.lower().replace(":", "").replace("-", "")
+    if len(norm_mac) == 12 and all(c in "0123456789abcdef" for c in norm_mac):
+        for dev in devices:
+            if (dev.get("mac") or "").lower() == norm_mac:
+                return dev["id"]
+
+    wanted = d.lower()
+    exact = [x for x in devices if (x.get("name") or "").lower() == wanted]
+    if len(exact) == 1:
+        return exact[0]["id"]
+    partial = [x for x in devices if wanted in (x.get("name") or "").lower()]
+    if len(partial) == 1:
+        return partial[0]["id"]
+    if len(partial) > 1:
+        names = ", ".join(x.get("name", "?") for x in partial[:10])
+        raise MistAPIError(f"Device '{device}' is ambiguous; matches: {names}")
+    raise MistAPIError(
+        f"No device named '{device}' at this site. "
+        "Use get_device_stats or search_organization_devices to find it."
+    )
+
+
+def _render_config_section(config: dict, section: str) -> str:
+    """Render one top-level config section in full."""
+    value = config[section]
+    name = config.get("name", config.get("mac", "device"))
+    result = f"# {name}: {section}\n\n"
+
+    if section == "port_config" and isinstance(value, dict):
+        result += "| Port(s) | Usage | Other Settings |\n"
+        result += "|---------|-------|----------------|\n"
+        for ports, cfg in value.items():
+            if isinstance(cfg, dict):
+                usage = cfg.get("usage", "-")
+                extras = ", ".join(f"{k}={v}" for k, v in cfg.items() if k != "usage")
+            else:
+                usage, extras = str(cfg), ""
+            result += f"| {ports} | {usage} | {extras or '-'} |\n"
+        return result
+
+    if isinstance(value, dict):
+        return result + format_dict_as_markdown(value)
+    if isinstance(value, list):
+        for i, item in enumerate(value, 1):
+            result += f"## Item {i}\n\n"
+            result += format_dict_as_markdown(item) if isinstance(item, dict) else f"{item}\n"
+        return result
+    return result + f"{value}\n"
+
+
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_config(
     site_id: str,
     device_id: str,
+    section: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
     Get the configuration of a specific device.
 
-    Retrieves the full configuration of an AP, switch, or gateway including
+    Retrieves the configuration of an AP, switch, or gateway including
     network settings, ports, radio config, and management settings.
+
+    Full switch configs (especially VC stacks) can exceed the response
+    size cap. Use the section parameter to pull one part in full - e.g.
+    section="port_config" lists EVERY port-to-profile assignment, which
+    answers "what is port X on switch Y configured to?".
 
     Args:
         site_id: Site UUID or site name (e.g. "GPCC")
-        device_id: Device UUID (not MAC address - get from device inventory/stats)
+        device_id: Device UUID, MAC address, or device name (e.g. "Library-Upper")
+        section: Optional top-level config section to return in full
+                 (e.g. "port_config", "port_usages", "ip_config",
+                 "radio_config"). Unknown sections list what's available.
         format: Response format
 
     Returns:
-        Device configuration details
+        Device configuration details, or one full section when requested
 
     Example:
+        User: "What VLAN is Library-Upper port 4/0/14 configured to?"
+        -> Use device_id="Library-Upper", section="port_config", then look
+           up the matched usage via section="port_usages" if needed
+
         User: "Show me the config for device xyz"
         -> Use this tool with site_id and device_id
-
-    Error Handling:
-        - Device ID is UUID, not MAC address
-        - Use search_organization_devices to find device IDs
     """
     try:
         site_id = await resolve_site_id(site_id)
+        device_id = await _resolve_device_id(site_id, device_id)
         config = await mist_api_request(f"/sites/{site_id}/devices/{device_id}")
+
+        if section:
+            if section not in config:
+                available = ", ".join(sorted(
+                    k for k, v in config.items()
+                    if isinstance(v, (dict, list)) and v
+                ))
+                return (f"Section '{section}' not found on this device. "
+                        f"Available sections: {available}")
+            if format == "json":
+                return json_tool_result({section: config[section]})
+            return truncate_response(_render_config_section(config, section))
 
         if format == "json":
             return json_tool_result(config)
@@ -538,13 +638,22 @@ async def get_device_config(
                 result += "\n"
 
         if 'port_config' in config:
+            entries = list(config['port_config'].items())
             result += "\n## Port Configuration\n\n"
-            for port_name, port_cfg in list(config['port_config'].items())[:10]:
+            for port_name, port_cfg in entries[:10]:
                 result += f"### {port_name}\n"
                 result += f"- **Usage:** {port_cfg.get('usage', 'N/A')}\n"
                 if port_cfg.get('vlan_id'):
                     result += f"- **VLAN:** {port_cfg['vlan_id']}\n"
                 result += "\n"
+            if len(entries) > 10:
+                result += (f"*... and {len(entries) - 10} more port entries. "
+                           f"Use section=\"port_config\" for the full list.*\n")
+
+        sections = sorted(k for k, v in config.items() if isinstance(v, (dict, list)) and v)
+        if sections:
+            result += ("\n---\n*Config sections available via the section "
+                       f"parameter: {', '.join(sections)}*\n")
 
         return truncate_response(result)
 

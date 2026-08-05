@@ -503,3 +503,83 @@ async def test_device_stats_always_sends_type(mock_api):
     mock_api(handler)
     await jm.get_device_stats(site_id=SITE_ID)
     assert seen["type"] == "all"
+
+
+# ----------------------------------------------------------------------------
+# Device config: name resolution and section drill-down
+# ----------------------------------------------------------------------------
+
+DEVICE_ID = "d7f7b9c1-0000-4000-8000-000000000001"
+
+
+def _switch_config_handler(request):
+    path = request.url.path
+    if path.endswith("/devices") and "type" in request.url.params:
+        # device name resolution must ask for all types, not the ap default
+        assert request.url.params["type"] == "all"
+        return httpx.Response(200, json=[
+            {"id": DEVICE_ID, "name": "Library-Upper", "mac": "aabbccddee01", "type": "switch"},
+            {"id": "other", "name": "Library-Lower", "mac": "aabbccddee02", "type": "switch"},
+        ])
+    if path.endswith(f"/devices/{DEVICE_ID}"):
+        return httpx.Response(200, json={
+            "id": DEVICE_ID, "name": "Library-Upper", "type": "switch",
+            "port_config": {
+                "mge-0/0/0-11": {"usage": "v1020-staff"},
+                "mge-4/0/14": {"usage": "v2050-mac_imaging", "poe_disabled": False},
+            },
+            "port_usages": {"v2050-mac_imaging": {"port_network": "vlan2050"}},
+        })
+    return httpx.Response(500, text=f"unexpected path {path}")
+
+
+async def test_device_config_resolves_name_and_returns_full_section(mock_api):
+    mock_api(_switch_config_handler)
+    out = await jm.get_device_config(
+        site_id=SITE_ID, device_id="Library-Upper", section="port_config")
+    assert "mge-4/0/14" in out and "v2050-mac_imaging" in out
+    assert "mge-0/0/0-11" in out  # every entry, not just the first 10
+
+
+async def test_device_config_ambiguous_name(mock_api):
+    mock_api(_switch_config_handler)
+    out = await jm.get_device_config(site_id=SITE_ID, device_id="Library")
+    assert "ambiguous" in out and "Library-Lower" in out
+
+
+async def test_device_config_unknown_section_lists_available(mock_api):
+    mock_api(_switch_config_handler)
+    out = await jm.get_device_config(
+        site_id=SITE_ID, device_id="Library-Upper", section="nope")
+    assert "not found" in out and "port_config" in out and "port_usages" in out
+
+
+# ----------------------------------------------------------------------------
+# count_client_events
+# ----------------------------------------------------------------------------
+
+async def test_count_client_events_server_side_distinct(mock_api):
+    def handler(request):
+        assert request.url.path.endswith("/clients/events/count")
+        assert request.url.params["distinct"] == "type"
+        return httpx.Response(200, json={"total": 11004, "results": [
+            {"type": "CLIENT_DHCPV4_FAILURE", "count": 11004},
+            {"type": "CLIENT_DNS_FAILURE", "count": 97},
+        ]})
+
+    mock_api(handler)
+    out = await jm.count_client_events(site_id=SITE_ID, group_by="type")
+    assert "11,004" in out and "CLIENT_DHCPV4_FAILURE" in out
+
+
+async def test_count_client_events_mac_aggregates_with_coverage(mock_api):
+    def handler(request):
+        assert request.url.path.endswith("/clients/events/search")
+        events = [{"mac": "aa:00:00:00:00:01"}] * 5 + [{"mac": "aa:00:00:00:00:02"}] * 2
+        return httpx.Response(200, json={"total": 11004, "results": events})
+
+    mock_api(handler)
+    out = await jm.count_client_events(
+        site_id=SITE_ID, group_by="mac", event_type="CLIENT_DHCPV4_FAILURE")
+    assert "aa:00:00:00:00:01 | 5" in out
+    assert "11,004" in out and "sample" in out  # coverage note present

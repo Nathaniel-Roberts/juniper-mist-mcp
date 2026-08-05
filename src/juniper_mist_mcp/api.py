@@ -161,6 +161,11 @@ _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
 )
 
+
+def is_uuid(value: str) -> bool:
+    """True if value looks like a Mist UUID."""
+    return bool(_UUID_RE.fullmatch((value or "").strip()))
+
 # Site lists are near-static; cache briefly to keep name resolution from
 # burning rate limit when an agent makes many site-scoped calls.
 SITE_CACHE_TTL_SECONDS = 60.0

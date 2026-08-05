@@ -2,7 +2,7 @@
 
 ## What This Is
 
-An MCP server exposing 50 read-only Juniper Mist API tools, built on the
+An MCP server exposing 51 read-only Juniper Mist API tools, built on the
 MCP Python SDK v2 (`MCPServer`). Installed by consumers via
 `uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp` —
 every push to main is what users get on their next fresh install.
@@ -82,8 +82,13 @@ Every tool follows the same pattern — copy an existing one in the right
   list endpoints return bare arrays. Handle both.
 - Rate limit is 5,000 requests/hour per token.
 - `list_organizations` uses `/self` privileges, not `/orgs`.
-- `GET /orgs/{org_id}/stats/devices` defaults `type` to `ap` server-side;
-  always send type explicitly (see get_org_device_status).
+- `type` defaults to `ap` server-side on `/orgs/{org_id}/stats/devices`,
+  `/sites/{site_id}/stats/devices`, AND `/sites/{site_id}/devices` - always
+  send it explicitly.
+- The client events count endpoint's `distinct` supports
+  type/ssid/band/channel/proto/wlan_id but NOT mac or ap; per-client
+  ranking must aggregate search results client-side (see
+  count_client_events).
 
 ## Phase 2: Write Operations (not started)
 

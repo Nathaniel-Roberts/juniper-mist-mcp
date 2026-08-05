@@ -26,6 +26,113 @@ def _results_of(data) -> list:
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
+async def count_client_events(
+    site_id: str,
+    group_by: Literal["type", "ssid", "band", "channel", "proto", "wlan_id", "mac", "ap"] = "type",
+    event_type: Optional[str] = None,
+    duration: int = 24,
+    top: int = 30,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str | CallToolResult:
+    """
+    Count wireless client events grouped by a field, for ranking problems.
+
+    Use this to turn thousands of raw events into a ranked table - e.g.
+    "which clients have the most DHCP failures?" or "which SSIDs generate
+    the most auth errors?". For type/ssid/band/channel/proto/wlan_id the
+    Mist count endpoint aggregates server-side (exact). For mac/ap the API
+    cannot aggregate, so the most recent events (up to 1000) are counted
+    client-side and coverage is reported.
+
+    Args:
+        site_id: Site UUID or site name (e.g. "MCS")
+        group_by: Field to group counts by
+        event_type: Optional event type filter (e.g. "CLIENT_DHCP_FAILURE";
+                    comma-separated values allowed)
+        duration: Hours of history (default 24)
+        top: Maximum groups to return (default 30)
+        format: Response format
+
+    Returns:
+        Ranked counts per group value
+
+    Example:
+        User: "Which clients are failing DHCP the most at MCS?"
+        -> Use with group_by="mac", event_type="CLIENT_DHCP_FAILURE"
+
+        User: "What event types are most common today?"
+        -> Use with group_by="type"
+    """
+    try:
+        site_id = await resolve_site_id(site_id)
+        end_time = int(time.time())
+        window = {"start": end_time - (duration * 3600), "end": end_time}
+
+        server_side = group_by in ("type", "ssid", "band", "channel", "proto", "wlan_id")
+        coverage_note = None
+
+        if server_side:
+            params = {"distinct": group_by, "limit": max(top, 100), **window}
+            if event_type:
+                params["type"] = event_type
+            response = await mist_api_request(
+                f"/sites/{site_id}/clients/events/count", params=params
+            )
+            rows = response.get("results", []) if isinstance(response, dict) else response
+            total = response.get("total") if isinstance(response, dict) else None
+            counts = [(str(r.get(group_by, "?")), r.get("count", 0)) for r in rows]
+        else:
+            # No server-side aggregation for mac/ap; count the most recent events
+            params = {"limit": 1000, **window}
+            if event_type:
+                params["type"] = event_type
+            response = await mist_api_request(
+                f"/sites/{site_id}/clients/events/search", params=params
+            )
+            events = response.get("results", []) if isinstance(response, dict) else response
+            total = response.get("total") if isinstance(response, dict) else None
+            tally: dict[str, int] = {}
+            for e in events:
+                key = str(e.get(group_by) or "?").lower()
+                tally[key] = tally.get(key, 0) + 1
+            counts = sorted(tally.items(), key=lambda kv: kv[1], reverse=True)
+            if total and total > len(events):
+                coverage_note = (
+                    f"Counted the most recent {len(events):,} of {total:,} events; "
+                    "ranking reflects that sample."
+                )
+
+        counts = counts[:top]
+
+        if format == "json":
+            return json_tool_result({
+                "group_by": group_by,
+                "total_events": total,
+                "counts": [{group_by: k, "count": c} for k, c in counts],
+                "coverage_note": coverage_note,
+            })
+
+        if not counts:
+            return f"# Client Event Counts\n\nNo matching events in the last {duration} hour(s)."
+
+        result = f"# Client Event Counts by {group_by}\n\n"
+        if total is not None:
+            result += f"**Total events in window:** {total:,}\n"
+        if event_type:
+            result += f"**Event type filter:** {event_type}\n"
+        if coverage_note:
+            result += f"\n*{coverage_note}*\n"
+        result += f"\n| {group_by} | Count |\n|---|---|\n"
+        for key, count in counts:
+            result += f"| {key} | {count:,} |\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error counting client events: {str(e)}"
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def troubleshoot_client(
     client_mac: str,
     site_id: Optional[str] = None,

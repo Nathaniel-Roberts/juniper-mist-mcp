@@ -95,7 +95,7 @@ claude mcp list
 
 ## Available Tools
 
-All 50 tools are read-only (each carries the MCP `readOnlyHint` annotation); nothing here can change your network. Every tool takes `format: "markdown" | "json"`; JSON responses include MCP `structuredContent` alongside the text so clients get machine-readable data.
+All 51 tools are read-only (each carries the MCP `readOnlyHint` annotation); nothing here can change your network. Every tool takes `format: "markdown" | "json"`; JSON responses include MCP `structuredContent` alongside the text so clients get machine-readable data.
 
 ### Organizations & Sites
 - `list_organizations` - See all your organizations
@@ -109,7 +109,7 @@ All 50 tools are read-only (each carries the MCP `readOnlyHint` annotation); not
 - `get_org_device_status` - Device status across every site in one call
 - `get_device_inventory` - View all devices in your inventory
 - `get_device_stats` - Real-time device statistics (supports summary mode and field selection)
-- `get_device_config` - View device configuration
+- `get_device_config` - View device configuration (accepts device names; section drill-down for big switch configs)
 - `get_device_events` - Get device events
 - `search_organization_devices` - Find devices by name, MAC, serial, or model
 - `get_switch_port_stats` - Get switch port status and traffic
@@ -133,6 +133,7 @@ All 50 tools are read-only (each carries the MCP `readOnlyHint` annotation); not
 - `get_client_stats` - Connected client information
 - `get_client_by_mac` - Look up client details by MAC address
 - `search_client_events` - Wireless client events (auth failures, DHCP issues, roaming)
+- `count_client_events` - Ranked event counts (e.g. which clients fail DHCP the most)
 - `get_client_session_history` - Detailed session history for a client
 - `search_wired_client_events` - Wired port authentication events
 
