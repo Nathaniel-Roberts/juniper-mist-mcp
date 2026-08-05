@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request, resolve_org_id, resolve_site_id
+from ..api import get_org_sites, mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
@@ -89,24 +89,182 @@ async def get_device_inventory(
     except Exception as e:
         return f"Error getting device inventory: {str(e)}"
 
+def _summarize_device_stats(stats: list[dict]) -> dict:
+    """Reduce a device stats list to counts plus the disconnected devices."""
+    def count_by(key):
+        counts: dict[str, int] = {}
+        for d in stats:
+            value = str(d.get(key) or "unknown")
+            counts[value] = counts.get(value, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: kv[1], reverse=True))
+
+    disconnected = [
+        {
+            "name": d.get("name") or d.get("mac"),
+            "mac": d.get("mac"),
+            "type": d.get("type"),
+            "model": d.get("model"),
+            "last_seen": d.get("last_seen"),
+        }
+        for d in stats if d.get("status") == "disconnected"
+    ]
+    return {
+        "total": len(stats),
+        "by_status": count_by("status"),
+        "by_type": count_by("type"),
+        "by_model": count_by("model"),
+        "by_version": count_by("version"),
+        "disconnected": disconnected,
+    }
+
+
+def _render_device_summary(summary: dict) -> str:
+    result = "# Device Statistics Summary\n\n"
+    result += f"**Total devices:** {summary['total']}\n\n"
+    for title, key in (("Status", "by_status"), ("Type", "by_type"),
+                       ("Model", "by_model"), ("Firmware", "by_version")):
+        result += f"## By {title}\n\n"
+        for value, count in summary[key].items():
+            result += f"- **{value}:** {count}\n"
+        result += "\n"
+    if summary["disconnected"]:
+        result += f"## Disconnected Devices ({len(summary['disconnected'])})\n\n"
+        result += "| Name | MAC | Type | Model | Last Seen |\n"
+        result += "|------|-----|------|-------|-----------|\n"
+        for d in summary["disconnected"][:50]:
+            last = format_timestamp(d["last_seen"]) if d.get("last_seen") else "N/A"
+            result += f"| {d['name']} | {d['mac']} | {d['type']} | {d['model']} | {last} |\n"
+    return result
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
+async def get_org_device_status(
+    org_id: Optional[str] = None,
+    device_type: Literal["ap", "switch", "gateway", "all"] = "all",
+    status: Literal["all", "connected", "disconnected"] = "all",
+    site: Optional[str] = None,
+    limit: int = 300,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str | CallToolResult:
+    """
+    Get device status across the whole organization in one call.
+
+    Answers "what is offline right now, anywhere?" without querying each
+    site separately. Returns every device with its site, status, model,
+    firmware, and last-seen time, grouped by site.
+
+    Args:
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
+        device_type: Filter by device type ("all" covers APs, switches, gateways)
+        status: Filter by connection status ("disconnected" for outage triage)
+        site: Optional site UUID or name to narrow to one site
+        limit: Maximum devices to return (1-1000, default 300)
+        format: Response format
+
+    Returns:
+        Devices grouped by site with status counts; disconnected devices
+        listed with last-seen times
+
+    Example:
+        User: "Which devices are offline across all schools?"
+        -> Use this tool with status="disconnected"
+
+        User: "Are all the gateways up?"
+        -> Use this tool with device_type="gateway"
+    """
+    try:
+        org_id = resolve_org_id(org_id)
+        # The API's type parameter defaults to "ap", so always send it
+        params = {"type": device_type, "limit": min(limit, 1000)}
+        if status != "all":
+            params["status"] = status
+        if site:
+            params["site_id"] = await resolve_site_id(site, org_id)
+
+        response = await mist_api_request(f"/orgs/{org_id}/stats/devices", params=params)
+        devices = response.get("results", response) if isinstance(response, dict) else response
+
+        # Resolve site names for readability
+        try:
+            site_names = {s["id"]: s.get("name", s["id"]) for s in await get_org_sites(org_id)}
+        except Exception:
+            site_names = {}
+
+        if format == "json":
+            for d in devices:
+                if d.get("site_id") in site_names:
+                    d["site_name"] = site_names[d["site_id"]]
+            return json_tool_result(devices)
+
+        if not devices:
+            return "# Organization Device Status\n\nNo devices matched the filters."
+
+        connected = [d for d in devices if d.get("status") == "connected"]
+        disconnected = [d for d in devices if d.get("status") == "disconnected"]
+        other = [d for d in devices if d.get("status") not in ("connected", "disconnected")]
+
+        result = "# Organization Device Status\n\n"
+        result += f"**Total:** {len(devices)} | **Connected:** {len(connected)} | "
+        result += f"**Disconnected:** {len(disconnected)}"
+        if other:
+            result += f" | **Other:** {len(other)}"
+        result += "\n\n"
+
+        if disconnected:
+            result += f"## Disconnected ({len(disconnected)})\n\n"
+            result += "| Name | Site | Type | Model | MAC | Last Seen |\n"
+            result += "|------|------|------|-------|-----|-----------|\n"
+            for d in sorted(disconnected, key=lambda x: x.get("last_seen") or 0, reverse=True):
+                name = d.get("name") or d.get("mac", "Unknown")
+                site_name = site_names.get(d.get("site_id"), d.get("site_id", "N/A"))
+                last = format_timestamp(d["last_seen"]) if d.get("last_seen") else "N/A"
+                result += (f"| {name} | {site_name} | {d.get('type', 'N/A')} | "
+                           f"{d.get('model', 'N/A')} | {d.get('mac', 'N/A')} | {last} |\n")
+            result += "\n"
+
+        # Per-site connected counts
+        by_site: dict[str, list] = {}
+        for d in connected:
+            by_site.setdefault(d.get("site_id", "unknown"), []).append(d)
+        if by_site:
+            result += "## Connected by Site\n\n"
+            for sid, site_devices in sorted(by_site.items(),
+                                            key=lambda kv: len(kv[1]), reverse=True):
+                result += f"- **{site_names.get(sid, sid)}:** {len(site_devices)}\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error getting org device status: {str(e)}"
+
+
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_stats(
     site_id: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     status: Literal["connected", "disconnected", "all"] = "all",
     limit: int = 100,
+    detail: Literal["full", "summary"] = "full",
+    fields: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
-    Get real-time statistics for devices in an organization or site.
+    Get real-time statistics for devices at a site.
 
     Retrieves current device status, uptime, version, client count, and performance metrics.
+    The full per-device payload is large; use detail="summary" for counts, or
+    fields to select just the attributes you need.
 
     Args:
         site_id: Site UUID or site name (e.g. "GPCC")
         device_type: Filter by device type
         status: Filter by connection status
         limit: Maximum devices to return (1-1000)
+        detail: "full" for per-device data, "summary" for counts by
+                status/type/model/version plus the disconnected list
+        fields: Comma-separated device attributes to include (e.g.
+                "mac,name,status,version"); mac and name are always kept.
+                Applies to full detail only.
         format: Response format
 
     Returns:
@@ -115,6 +273,9 @@ async def get_device_stats(
     Example:
         User: "Which access points are offline?"
         -> Use this tool with device_type="ap", status="disconnected"
+
+        User: "What firmware versions are the switches on?"
+        -> Use detail="summary" or fields="mac,name,version"
 
     Error Handling:
         - Returns empty if no devices match filters
@@ -131,6 +292,16 @@ async def get_device_stats(
             params["status"] = status
 
         stats = await mist_api_request(endpoint, params=params)
+
+        if detail == "summary":
+            summary = _summarize_device_stats(stats)
+            if format == "json":
+                return json_tool_result(summary)
+            return truncate_response(_render_device_summary(summary))
+
+        if fields:
+            keep = {f.strip() for f in fields.split(",") if f.strip()} | {"mac", "name"}
+            stats = [{k: v for k, v in d.items() if k in keep} for d in stats]
 
         if format == "json":
             return json_tool_result(stats)

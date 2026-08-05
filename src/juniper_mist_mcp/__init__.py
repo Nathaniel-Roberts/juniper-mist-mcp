@@ -40,6 +40,7 @@ from .tools.orgs import (  # noqa: F401
 )
 from .tools.devices import (  # noqa: F401
     get_device_inventory,
+    get_org_device_status,
     get_device_stats,
     search_organization_devices,
     get_device_config,
@@ -56,6 +57,7 @@ from .tools.wireless import (  # noqa: F401
 )
 from .tools.monitoring import (  # noqa: F401
     get_alarms,
+    get_alarm_summary,
     get_marvis_actions,
     get_site_wan_stats,
 )

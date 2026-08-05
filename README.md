@@ -106,8 +106,9 @@ All 47 tools are read-only (each carries the MCP `readOnlyHint` annotation); not
 - `get_site_stats` - Get site health metrics
 
 ### Devices
+- `get_org_device_status` - Device status across every site in one call
 - `get_device_inventory` - View all devices in your inventory
-- `get_device_stats` - Get real-time device statistics
+- `get_device_stats` - Real-time device statistics (supports summary mode and field selection)
 - `get_device_config` - View device configuration
 - `get_device_events` - Get device events
 - `search_organization_devices` - Find devices by name, MAC, serial, or model
@@ -122,7 +123,8 @@ All 47 tools are read-only (each carries the MCP `readOnlyHint` annotation); not
 - `get_site_insights` - Site traffic/client analytics over time
 
 ### Monitoring
-- `get_alarms` - View active alerts and alarms
+- `get_alarm_summary` - Alarms grouped by issue with counts and affected devices
+- `get_alarms` - View active alerts and alarms (raw feed)
 - `get_marvis_actions` - Get Marvis AI recommendations
 - `get_site_wan_stats` - WAN link status
 

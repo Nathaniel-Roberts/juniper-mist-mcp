@@ -344,3 +344,84 @@ async def test_missing_org_id_gives_actionable_error(mock_api, monkeypatch):
     mock_api(lambda request: httpx.Response(500))
     out = await jm.list_sites()
     assert "MIST_ORG_ID" in out
+
+
+# ----------------------------------------------------------------------------
+# Org device status, alarm summary, device stats taming
+# ----------------------------------------------------------------------------
+
+async def test_org_device_status_groups_disconnected(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    now = int(time.time())
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith(f"/orgs/{ORG_ID}/stats/devices"):
+            # the API defaults type to "ap"; the tool must always send it
+            assert request.url.params["type"] == "all"
+            return httpx.Response(200, json=[
+                {"mac": "01", "name": "A2", "status": "disconnected", "type": "ap",
+                 "model": "AP45", "site_id": SITE_ID, "last_seen": now - 900},
+                {"mac": "02", "name": "Lib-West", "status": "connected", "type": "ap",
+                 "site_id": SITE_ID},
+                {"mac": "03", "name": "BCS-Core", "status": "connected", "type": "switch",
+                 "site_id": "0b65abe5-354a-4966-80e1-000000000001"},
+            ])
+        if path.endswith("/sites"):
+            return _sites_handler(request)
+        return httpx.Response(500, text=f"unexpected path {path}")
+
+    mock_api(handler)
+    out = await jm.get_org_device_status()
+    assert "Disconnected (1)" in out
+    assert "A2" in out and "GPCC" in out  # site name resolved
+    assert "Connected by Site" in out and "BCS" in out
+
+
+async def test_alarm_summary_groups_repeats(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    now = int(time.time())
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith("/alarms/search"):
+            return httpx.Response(200, json={"results": [
+                {"type": "infra_dhcp_failure", "site_id": SITE_ID, "severity": "critical",
+                 "timestamp": now - i * 600, "hostnames": [f"AP-{i % 3}"], "count": 10}
+                for i in range(12)
+            ] + [
+                {"type": "device_down", "site_id": SITE_ID, "severity": "warn",
+                 "timestamp": now - 100, "hostnames": ["A2"]},
+            ]})
+        if path.endswith("/sites"):
+            return _sites_handler(request)
+        return httpx.Response(500, text=f"unexpected path {path}")
+
+    mock_api(handler)
+    out = await jm.get_alarm_summary()
+    assert "grouped into 2 distinct issue(s)" in out
+    assert "infra_dhcp_failure @ GPCC (120x)" in out
+    assert out.index("CRITICAL") < out.index("WARN")
+
+
+async def test_device_stats_summary_mode(mock_api):
+    now = int(time.time())
+    devices = [
+        {"mac": f"m{i}", "name": f"AP-{i}", "status": "connected", "type": "ap",
+         "model": "AP45", "version": "0.14.29"} for i in range(5)
+    ] + [{"mac": "x", "name": "A2", "status": "disconnected", "type": "ap",
+          "model": "AP45", "version": "0.14.29", "last_seen": now - 60}]
+    mock_api(lambda request: httpx.Response(200, json=devices))
+    out = await jm.get_device_stats(site_id=SITE_ID, detail="summary")
+    assert "**Total devices:** 6" in out
+    assert "**connected:** 5" in out and "**disconnected:** 1" in out
+    assert "A2" in out
+
+
+async def test_device_stats_fields_filter(mock_api):
+    devices = [{"mac": "m1", "name": "AP-1", "status": "connected",
+                "huge_blob": "x" * 1000, "version": "0.14.29"}]
+    mock_api(lambda request: httpx.Response(200, json=devices))
+    out = await jm.get_device_stats(site_id=SITE_ID, fields="status", format="json")
+    data = out.structured_content["results"]
+    assert data == [{"mac": "m1", "name": "AP-1", "status": "connected"}]

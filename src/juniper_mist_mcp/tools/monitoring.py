@@ -1,12 +1,138 @@
 """Monitoring tools for the Juniper Mist MCP server."""
 
+import time
 from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request, resolve_org_id, resolve_site_id
+from ..api import get_org_sites, mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
+async def get_alarm_summary(
+    org_id: Optional[str] = None,
+    severity: Literal["critical", "warn", "info", "all"] = "all",
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str | CallToolResult:
+    """
+    Get active alarms grouped into stories instead of a raw repeating feed.
+
+    The raw alarm feed repeats the same issue many times (e.g. one DHCP
+    failure alarm per interval per AP). This tool groups alarms by type,
+    site, and severity, with counts, first/last seen times, and affected
+    devices, so triage is one call. Use get_alarms for full per-alarm detail.
+
+    Args:
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
+        severity: Filter by severity level
+        duration: Hours of history to summarize (default 24)
+        format: Response format
+
+    Returns:
+        Alarm groups sorted by severity then occurrence count
+
+    Example:
+        User: "Summarize the current alarms"
+        -> Use this tool with default parameters
+
+        User: "What critical issues are ongoing?"
+        -> Use this tool with severity="critical"
+    """
+    try:
+        org_id = resolve_org_id(org_id)
+        end_time = int(time.time())
+        params = {
+            "limit": 1000,
+            "start": end_time - (duration * 3600),
+            "end": end_time,
+        }
+        if severity != "all":
+            params["severity"] = severity
+
+        response = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
+        alarms = response.get("results", []) if isinstance(response, dict) else response
+
+        try:
+            site_names = {s["id"]: s.get("name", s["id"]) for s in await get_org_sites(org_id)}
+        except Exception:
+            site_names = {}
+
+        # Group by (type, site, severity)
+        groups: dict[tuple, dict] = {}
+        for alarm in alarms:
+            key = (alarm.get("type", "unknown"),
+                   alarm.get("site_id", "unknown"),
+                   alarm.get("severity", "info"))
+            g = groups.setdefault(key, {
+                "type": key[0],
+                "site_id": key[1],
+                "site_name": site_names.get(key[1], key[1]),
+                "severity": key[2],
+                "count": 0,
+                "first_seen": None,
+                "last_seen": None,
+                "hostnames": set(),
+                "reasons": set(),
+            })
+            g["count"] += alarm.get("count", 1)
+            ts = alarm.get("timestamp") or alarm.get("last_seen")
+            if ts:
+                g["first_seen"] = ts if g["first_seen"] is None else min(g["first_seen"], ts)
+                g["last_seen"] = ts if g["last_seen"] is None else max(g["last_seen"], ts)
+            for h in alarm.get("hostnames", []) or []:
+                g["hostnames"].add(h)
+            if alarm.get("reasons"):
+                g["reasons"].update(str(r) for r in alarm["reasons"])
+            elif alarm.get("reason"):
+                g["reasons"].add(str(alarm["reason"]))
+
+        sev_rank = {"critical": 0, "warn": 1, "info": 2}
+        ordered = sorted(
+            groups.values(),
+            key=lambda g: (sev_rank.get(g["severity"], 3), -g["count"]),
+        )
+        for g in ordered:  # sets aren't JSON serializable
+            g["hostnames"] = sorted(g["hostnames"])
+            g["reasons"] = sorted(g["reasons"])
+
+        if format == "json":
+            return json_tool_result({
+                "total_alarms": len(alarms),
+                "groups": ordered,
+            })
+
+        if not ordered:
+            return f"# Alarm Summary\n\nNo alarms in the last {duration} hour(s)."
+
+        result = "# Alarm Summary\n\n"
+        result += (f"{len(alarms)} alarm(s) in the last {duration} hour(s), "
+                   f"grouped into {len(ordered)} distinct issue(s)\n\n")
+
+        current_sev = None
+        for g in ordered:
+            if g["severity"] != current_sev:
+                current_sev = g["severity"]
+                result += f"## {current_sev.upper()}\n\n"
+            result += f"### {g['type']} @ {g['site_name']} ({g['count']}x)\n\n"
+            if g["first_seen"]:
+                result += f"- **First seen:** {format_timestamp(g['first_seen'])}\n"
+            if g["last_seen"]:
+                result += f"- **Last seen:** {format_timestamp(g['last_seen'])}\n"
+            if g["hostnames"]:
+                shown = ", ".join(g["hostnames"][:8])
+                more = f" (+{len(g['hostnames']) - 8} more)" if len(g["hostnames"]) > 8 else ""
+                result += f"- **Devices:** {shown}{more}\n"
+            if g["reasons"]:
+                result += f"- **Reasons:** {', '.join(g['reasons'][:5])}\n"
+            result += "\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error summarizing alarms: {str(e)}"
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
