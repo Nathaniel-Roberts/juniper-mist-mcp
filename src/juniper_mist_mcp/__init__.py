@@ -15,6 +15,7 @@ import json
 from datetime import datetime
 from typing import Literal, Optional, Any
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 import httpx
 from dotenv import load_dotenv
 
@@ -23,6 +24,9 @@ load_dotenv()
 
 # Initialize MCP server
 mcp = MCPServer("Juniper Mist")
+
+# All tools in this server are read-only (Phase 1)
+READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 # Configuration
 MIST_API_TOKEN = os.getenv("MIST_API_TOKEN")
@@ -249,7 +253,7 @@ def truncate_response(text: str, max_chars: int = 25000) -> str:
 # Organization Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_organizations(
     format: Literal["json", "markdown"] = "markdown"
 ) -> str:
@@ -289,7 +293,7 @@ async def list_organizations(
                     })
 
         if format == "json":
-            return json.dumps(orgs, indent=2)
+            return truncate_response(json.dumps(orgs, indent=2))
 
         # Format as markdown
         if not orgs:
@@ -310,7 +314,7 @@ async def list_organizations(
         return f"Error listing organizations: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_organization_info(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -340,7 +344,7 @@ async def get_organization_info(
         org = await mist_api_request(f"/orgs/{org_id}")
 
         if format == "json":
-            return json.dumps(org, indent=2)
+            return truncate_response(json.dumps(org, indent=2))
 
         return truncate_response(format_as_markdown(org, f"Organization: {org.get('name', org_id)}"))
 
@@ -348,7 +352,7 @@ async def get_organization_info(
         return f"Error getting organization info: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_sites(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -377,7 +381,7 @@ async def list_sites(
         sites = await mist_api_request(f"/orgs/{org_id}/sites")
 
         if format == "json":
-            return json.dumps(sites, indent=2)
+            return truncate_response(json.dumps(sites, indent=2))
 
         if not sites:
             return f"# Sites in Organization {org_id}\n\nNo sites found."
@@ -404,7 +408,7 @@ async def list_sites(
         return f"Error listing sites: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_site_info(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -434,7 +438,7 @@ async def get_site_info(
         site = await mist_api_request(f"/sites/{site_id}")
 
         if format == "json":
-            return json.dumps(site, indent=2)
+            return truncate_response(json.dumps(site, indent=2))
 
         result = f"# Site: {site.get('name', 'Unnamed Site')}\n\n"
         result += f"- **Site ID:** `{site['id']}`\n"
@@ -469,7 +473,7 @@ async def get_site_info(
         return f"Error getting site info: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_site_stats(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -498,7 +502,7 @@ async def get_site_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats")
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         result = f"# Site Statistics\n\n"
 
@@ -537,7 +541,7 @@ async def get_site_stats(
 # Device Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_device_inventory(
     org_id: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
@@ -575,7 +579,7 @@ async def get_device_inventory(
         inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=params)
 
         if format == "json":
-            return json.dumps(inventory, indent=2)
+            return truncate_response(json.dumps(inventory, indent=2))
 
         if not inventory:
             return f"# Device Inventory\n\nNo devices found in inventory."
@@ -617,7 +621,7 @@ async def get_device_inventory(
         return f"Error getting device inventory: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_device_stats(
     org_id: str,
     site_id: str,
@@ -662,7 +666,7 @@ async def get_device_stats(
         stats = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         if not stats:
             return f"# Device Statistics\n\nNo devices found matching the filters."
@@ -698,7 +702,7 @@ async def get_device_stats(
 # Monitoring Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_alarms(
     org_id: str,
     severity: Literal["critical", "warn", "info", "all"] = "all",
@@ -739,7 +743,7 @@ async def get_alarms(
         response = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
 
         if format == "json":
-            return json.dumps(response, indent=2)
+            return truncate_response(json.dumps(response, indent=2))
 
         # Extract alarms from the results key
         alarms = response.get("results", []) if isinstance(response, dict) else response
@@ -783,7 +787,7 @@ async def get_alarms(
         return f"Error getting alarms: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_client_stats(
     org_id: str,
     site_id: str,
@@ -823,7 +827,7 @@ async def get_client_stats(
         clients = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return json.dumps(clients, indent=2)
+            return truncate_response(json.dumps(clients, indent=2))
 
         if not clients:
             return f"# Connected Clients\n\nNo clients currently connected to site."
@@ -855,7 +859,7 @@ async def get_client_stats(
         return f"Error getting client statistics: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_organization_devices(
     org_id: str,
     search_term: str,
@@ -971,7 +975,7 @@ async def search_organization_devices(
         matches = unique_matches
 
         if format == "json":
-            return json.dumps(matches, indent=2)
+            return truncate_response(json.dumps(matches, indent=2))
 
         if not matches:
             return f"# Device Search Results\n\nNo devices found matching '{search_term}'."
@@ -1002,7 +1006,7 @@ async def search_organization_devices(
 # WLAN Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_wlans(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -1035,7 +1039,7 @@ async def list_wlans(
         wlans = await mist_api_request(f"/sites/{site_id}/wlans")
 
         if format == "json":
-            return json.dumps(wlans, indent=2)
+            return truncate_response(json.dumps(wlans, indent=2))
 
         if not wlans:
             return "# WLANs\n\nNo WLANs configured at this site."
@@ -1081,7 +1085,7 @@ async def list_wlans(
         return f"Error listing WLANs: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_org_wlans(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -1106,7 +1110,7 @@ async def list_org_wlans(
         wlans = await mist_api_request(f"/orgs/{org_id}/wlans")
 
         if format == "json":
-            return json.dumps(wlans, indent=2)
+            return truncate_response(json.dumps(wlans, indent=2))
 
         if not wlans:
             return "# Organization WLANs\n\nNo organization-level WLANs configured."
@@ -1137,7 +1141,7 @@ async def list_org_wlans(
 # Switch Port Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_switch_port_stats(
     site_id: str,
     switch_mac: Optional[str] = None,
@@ -1177,7 +1181,7 @@ async def get_switch_port_stats(
         response = await mist_api_request(f"/sites/{site_id}/stats/switch_ports/search", params=params)
 
         if format == "json":
-            return json.dumps(response, indent=2)
+            return truncate_response(json.dumps(response, indent=2))
 
         # Extract results from search response
         ports = response.get('results', response) if isinstance(response, dict) else response
@@ -1228,7 +1232,7 @@ async def get_switch_port_stats(
 # Event Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_device_events(
     site_id: str,
     device_mac: Optional[str] = None,
@@ -1272,7 +1276,7 @@ async def get_device_events(
         events = await mist_api_request(f"/sites/{site_id}/devices/events/search", params=params)
 
         if format == "json":
-            return json.dumps(events, indent=2)
+            return truncate_response(json.dumps(events, indent=2))
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -1313,7 +1317,7 @@ async def get_device_events(
 # WAN/Gateway Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_site_wan_stats(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -1346,7 +1350,7 @@ async def get_site_wan_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params={"type": "gateway"})
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         if not stats:
             return "# WAN Statistics\n\nNo gateway devices found at this site."
@@ -1390,7 +1394,7 @@ async def get_site_wan_stats(
 # Security Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_rogue_aps(
     site_id: str,
     limit: int = 50,
@@ -1426,7 +1430,7 @@ async def get_rogue_aps(
         rogues = await mist_api_request(f"/sites/{site_id}/insights/rogues", params=params)
 
         if format == "json":
-            return json.dumps(rogues, indent=2)
+            return truncate_response(json.dumps(rogues, indent=2))
 
         results_list = rogues.get('results', rogues) if isinstance(rogues, dict) else rogues
 
@@ -1468,7 +1472,7 @@ async def get_rogue_aps(
 # RF/Wireless Analytics Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_rf_stats(
     site_id: str,
     band: Literal["24", "5", "6", "all"] = "all",
@@ -1505,7 +1509,7 @@ async def get_rf_stats(
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params=params)
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         if not stats:
             return "# RF Statistics\n\nNo access points found at this site."
@@ -1570,7 +1574,7 @@ async def get_rf_stats(
 # Marvis AI Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_marvis_actions(
     org_id: str,
     category: Literal["all", "wired", "wireless", "wan", "switch", "ap", "gateway"] = "all",
@@ -1623,7 +1627,7 @@ async def get_marvis_actions(
         actions = await mist_api_request(f"/orgs/{org_id}/alarms/search", params=params)
 
         if format == "json":
-            return json.dumps(actions, indent=2)
+            return truncate_response(json.dumps(actions, indent=2))
 
         # Handle response format (could be list or dict with results)
         results_list = actions.get('results', actions) if isinstance(actions, dict) else actions
@@ -1717,7 +1721,7 @@ async def get_marvis_actions(
 # Summary/Dashboard Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_org_stats_summary(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -1751,7 +1755,7 @@ async def get_org_stats_summary(
         org_stats = await mist_api_request(f"/orgs/{org_id}/stats")
 
         if format == "json":
-            return json.dumps(org_stats, indent=2)
+            return truncate_response(json.dumps(org_stats, indent=2))
 
         result = "# Organization Network Summary\n\n"
 
@@ -1792,7 +1796,7 @@ async def get_org_stats_summary(
         return f"Error getting org summary: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_device_config(
     site_id: str,
     device_id: str,
@@ -1824,7 +1828,7 @@ async def get_device_config(
         config = await mist_api_request(f"/sites/{site_id}/devices/{device_id}")
 
         if format == "json":
-            return json.dumps(config, indent=2)
+            return truncate_response(json.dumps(config, indent=2))
 
         result = f"# Device Configuration\n\n"
         result += f"- **Name:** {config.get('name', 'N/A')}\n"
@@ -1870,7 +1874,7 @@ async def get_device_config(
 # Client Events & Troubleshooting Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_client_events(
     site_id: str,
     client_mac: Optional[str] = None,
@@ -1935,7 +1939,7 @@ async def search_client_events(
         events = await mist_api_request(f"/sites/{site_id}/clients/events/search", params=params)
 
         if format == "json":
-            return json.dumps(events, indent=2)
+            return truncate_response(json.dumps(events, indent=2))
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -2024,7 +2028,7 @@ async def search_client_events(
         return f"Error searching client events: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_client_session_history(
     site_id: str,
     client_mac: str,
@@ -2072,7 +2076,7 @@ async def get_client_session_history(
         sessions = await mist_api_request(f"/sites/{site_id}/clients/sessions/search", params=params)
 
         if format == "json":
-            return json.dumps(sessions, indent=2)
+            return truncate_response(json.dumps(sessions, indent=2))
 
         results_list = sessions.get('results', sessions) if isinstance(sessions, dict) else sessions
 
@@ -2161,7 +2165,7 @@ async def get_client_session_history(
 # NAC (Network Access Control) Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_nac_client_events(
     org_id: str,
     site_id: Optional[str] = None,
@@ -2236,7 +2240,7 @@ async def search_nac_client_events(
         events = await mist_api_request(endpoint, params=params)
 
         if format == "json":
-            return json.dumps(events, indent=2)
+            return truncate_response(json.dumps(events, indent=2))
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -2337,7 +2341,7 @@ async def search_nac_client_events(
         return f"Error searching NAC events: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_nac_rules(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -2371,7 +2375,7 @@ async def get_nac_rules(
         rules = await mist_api_request(f"/orgs/{org_id}/nacrules")
 
         if format == "json":
-            return json.dumps(rules, indent=2)
+            return truncate_response(json.dumps(rules, indent=2))
 
         if not rules:
             return "# NAC Rules\n\nNo NAC rules configured in this organization."
@@ -2448,7 +2452,7 @@ async def get_nac_rules(
         return f"Error getting NAC rules: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_nac_tags(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -2480,7 +2484,7 @@ async def get_nac_tags(
         tags = await mist_api_request(f"/orgs/{org_id}/nactags")
 
         if format == "json":
-            return json.dumps(tags, indent=2)
+            return truncate_response(json.dumps(tags, indent=2))
 
         if not tags:
             return "# NAC Tags\n\nNo NAC tags configured in this organization."
@@ -2525,7 +2529,7 @@ async def get_nac_tags(
         return f"Error getting NAC tags: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_org_radius_config(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -2567,7 +2571,7 @@ async def get_org_radius_config(
                 'mist_nac': org_settings.get('mist_nac', {}),
                 'coa_servers': org_settings.get('coa_servers', [])
             }
-            return json.dumps(radius_config, indent=2)
+            return truncate_response(json.dumps(radius_config, indent=2))
 
         result = "# RADIUS & Authentication Configuration\n\n"
 
@@ -2631,7 +2635,7 @@ async def get_org_radius_config(
         return f"Error getting RADIUS config: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_wired_client_events(
     site_id: str,
     client_mac: Optional[str] = None,
@@ -2696,7 +2700,7 @@ async def search_wired_client_events(
         events = await mist_api_request(f"/sites/{site_id}/wired_clients/events/search", params=params)
 
         if format == "json":
-            return json.dumps(events, indent=2)
+            return truncate_response(json.dumps(events, indent=2))
 
         results_list = events.get('results', events) if isinstance(events, dict) else events
 
@@ -2761,7 +2765,7 @@ async def search_wired_client_events(
         return f"Error searching wired client events: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_client_by_mac(
     org_id: str,
     client_mac: str,
@@ -2805,7 +2809,7 @@ async def get_client_by_mac(
         clients = await mist_api_request(f"/orgs/{org_id}/clients/search", params=params)
 
         if format == "json":
-            return json.dumps(clients, indent=2)
+            return truncate_response(json.dumps(clients, indent=2))
 
         results_list = clients.get('results', clients) if isinstance(clients, dict) else clients
 
@@ -2898,7 +2902,7 @@ async def get_client_by_mac(
         return f"Error looking up client: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_org_idps(
     org_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -2932,7 +2936,7 @@ async def get_org_idps(
         idps = await mist_api_request(f"/orgs/{org_id}/ssos")
 
         if format == "json":
-            return json.dumps(idps, indent=2)
+            return truncate_response(json.dumps(idps, indent=2))
 
         if not idps:
             return "# Identity Providers\n\nNo Identity Providers configured."
@@ -2993,7 +2997,7 @@ async def get_org_idps(
         return f"Error getting IdPs: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_nac_portal_logs(
     org_id: str,
     site_id: Optional[str] = None,
@@ -3061,7 +3065,7 @@ async def get_nac_portal_logs(
         except Exception:
             # Fall back to listing configured portals
             if format == "json":
-                return json.dumps({"portals": portals, "logs": []}, indent=2)
+                return truncate_response(json.dumps({"portals": portals, "logs": []}, indent=2))
 
             result = "# NAC Portals\n\n"
             result += f"Found {len(portals)} NAC portal(s) configured:\n\n"
@@ -3077,7 +3081,7 @@ async def get_nac_portal_logs(
             return truncate_response(result)
 
         if format == "json":
-            return json.dumps(logs, indent=2)
+            return truncate_response(json.dumps(logs, indent=2))
 
         results_list = logs.get('results', logs) if isinstance(logs, dict) else logs
 
@@ -3162,7 +3166,7 @@ def _build_sle_scope_path(
         return f"site/{site_id}", None
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_metrics(
     site_id: str,
     scope: Literal["site", "ap", "client"] = "site",
@@ -3209,7 +3213,7 @@ async def get_sle_metrics(
         metrics = await mist_api_request(f"/sites/{site_id}/sle/{scope_path}/metrics")
 
         if format == "json":
-            return json.dumps(metrics, indent=2)
+            return truncate_response(json.dumps(metrics, indent=2))
 
         result = "# SLE Metrics\n\n"
         result += f"**Scope:** {scope}\n"
@@ -3255,7 +3259,7 @@ async def get_sle_metrics(
         return f"Error getting SLE metrics: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_summary(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -3312,7 +3316,7 @@ async def get_sle_summary(
         )
 
         if format == "json":
-            return json.dumps(summary, indent=2)
+            return truncate_response(json.dumps(summary, indent=2))
 
         result = f"# SLE Summary: {metric}\n\n"
         result += f"**Scope:** {scope}\n"
@@ -3385,7 +3389,7 @@ async def get_sle_summary(
         return f"Error getting SLE summary: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_histogram(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -3439,7 +3443,7 @@ async def get_sle_histogram(
         )
 
         if format == "json":
-            return json.dumps(histogram, indent=2)
+            return truncate_response(json.dumps(histogram, indent=2))
 
         result = f"# SLE Histogram: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -3511,7 +3515,7 @@ async def get_sle_histogram(
         return f"Error getting SLE histogram: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_impact(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -3565,7 +3569,7 @@ async def get_sle_impact(
         )
 
         if format == "json":
-            return json.dumps(impact, indent=2)
+            return truncate_response(json.dumps(impact, indent=2))
 
         result = f"# SLE Impact Analysis: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -3627,7 +3631,7 @@ async def get_sle_impact(
         return f"Error getting SLE impact: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_impacted_aps(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -3675,7 +3679,7 @@ async def get_sle_impacted_aps(
         )
 
         if format == "json":
-            return json.dumps(impacted, indent=2)
+            return truncate_response(json.dumps(impacted, indent=2))
 
         result = f"# Impacted APs: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -3708,7 +3712,7 @@ async def get_sle_impacted_aps(
         return f"Error getting impacted APs: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_sle_impacted_clients(
     site_id: str,
     metric: Literal["time-to-connect", "throughput", "coverage", "capacity", "roaming", "successful-connect", "ap-availability"],
@@ -3756,7 +3760,7 @@ async def get_sle_impacted_clients(
         )
 
         if format == "json":
-            return json.dumps(impacted, indent=2)
+            return truncate_response(json.dumps(impacted, indent=2))
 
         result = f"# Impacted Clients: {metric}\n\n"
         result += f"**Period:** Last {duration} hour(s)\n\n"
@@ -3794,7 +3798,7 @@ async def get_sle_impacted_clients(
 # Maps & Floor Plans Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_site_maps(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -3827,7 +3831,7 @@ async def list_site_maps(
         maps = await mist_api_request(f"/sites/{site_id}/maps")
 
         if format == "json":
-            return json.dumps(maps, indent=2)
+            return truncate_response(json.dumps(maps, indent=2))
 
         if not maps:
             return "# Site Maps\n\nNo maps/floor plans configured for this site."
@@ -3880,7 +3884,7 @@ async def list_site_maps(
         return f"Error listing site maps: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_map_info(
     site_id: str,
     map_id: str,
@@ -3915,7 +3919,7 @@ async def get_map_info(
         map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
 
         if format == "json":
-            return json.dumps(map_info, indent=2)
+            return truncate_response(json.dumps(map_info, indent=2))
 
         name = map_info.get('name', 'Unnamed Map')
         result = f"# Map: {name}\n\n"
@@ -3984,7 +3988,7 @@ async def get_map_info(
         return f"Error getting map info: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_zones(
     site_id: str,
     format: Literal["json", "markdown"] = "markdown"
@@ -4017,7 +4021,7 @@ async def list_zones(
         zones = await mist_api_request(f"/sites/{site_id}/zones")
 
         if format == "json":
-            return json.dumps(zones, indent=2)
+            return truncate_response(json.dumps(zones, indent=2))
 
         if not zones:
             return "# Location Zones\n\nNo zones configured for this site."
@@ -4062,7 +4066,7 @@ async def list_zones(
 # ============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def list_assets(
     site_id: str,
     limit: int = 100,
@@ -4100,7 +4104,7 @@ async def list_assets(
         )
 
         if format == "json":
-            return json.dumps(assets, indent=2)
+            return truncate_response(json.dumps(assets, indent=2))
 
         # Format as markdown
         result = "# BLE Assets\n\n"
@@ -4143,7 +4147,7 @@ async def list_assets(
         return f"Error listing assets: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_asset_stats(
     site_id: str,
     limit: int = 100,
@@ -4181,7 +4185,7 @@ async def get_asset_stats(
         )
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         # Format as markdown
         result = "# Asset Statistics\n\n"
@@ -4229,7 +4233,7 @@ async def get_asset_stats(
         return f"Error getting asset stats: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_assets(
     site_id: str,
     search_term: str,
@@ -4280,7 +4284,7 @@ async def search_assets(
                     break
 
         if format == "json":
-            return json.dumps(matched, indent=2)
+            return truncate_response(json.dumps(matched, indent=2))
 
         # Format as markdown
         result = f"# Asset Search Results for '{search_term}'\n\n"
@@ -4311,7 +4315,7 @@ async def search_assets(
         return f"Error searching assets: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_discovered_assets(
     site_id: str,
     limit: int = 100,
@@ -4349,7 +4353,7 @@ async def get_discovered_assets(
         )
 
         if format == "json":
-            return json.dumps(discovered, indent=2)
+            return truncate_response(json.dumps(discovered, indent=2))
 
         # Format as markdown
         result = "# Discovered BLE Devices\n\n"
@@ -4403,7 +4407,7 @@ async def get_discovered_assets(
 # ============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_site_insights(
     site_id: str,
     metric: str = "bytes",
@@ -4443,7 +4447,7 @@ async def get_site_insights(
         )
 
         if format == "json":
-            return json.dumps(insights, indent=2)
+            return truncate_response(json.dumps(insights, indent=2))
 
         result = f"# Site Insights: {metric}\n\n"
         result += f"**Time Range:** Last {duration} hours\n\n"
@@ -4495,7 +4499,7 @@ async def get_site_insights(
         return f"Error getting site insights: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_ap_radio_status(
     site_id: str,
     ap_mac: Optional[str] = None,
@@ -4536,7 +4540,7 @@ async def get_ap_radio_status(
         )
 
         if format == "json":
-            return json.dumps(stats, indent=2)
+            return truncate_response(json.dumps(stats, indent=2))
 
         result = "# AP Radio Status\n\n"
 
@@ -4598,7 +4602,7 @@ async def get_ap_radio_status(
 # Location History / Device Tracking Tools
 # ============================================================================
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def get_client_location_history(
     site_id: str,
     client_mac: str,
@@ -4617,8 +4621,8 @@ async def get_client_location_history(
         site_id: Site UUID (get from list_sites)
         client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
         duration: Hours of history (default 24, max 168) - used if start/end not provided
-        start: Start time as "YYYY-MM-DD HH:MM" (optional, uses site timezone)
-        end: End time as "YYYY-MM-DD HH:MM" (optional, uses site timezone)
+        start: Start time as "YYYY-MM-DD HH:MM" (optional, local timezone of the machine running this server)
+        end: End time as "YYYY-MM-DD HH:MM" (optional, local timezone of the machine running this server)
         format: "markdown" for concise output, "json" for structured data
 
     Returns:
@@ -4729,7 +4733,7 @@ async def get_client_location_history(
                 pass  # If check fails, just use session data
 
         if format == "json":
-            return json.dumps({'mac': mac, 'timeline': timeline}, indent=2)
+            return truncate_response(json.dumps({'mac': mac, 'timeline': timeline}, indent=2))
 
         # Concise markdown table
         lines = [f"# Location: `{mac}`\n"]
@@ -4761,7 +4765,7 @@ async def get_client_location_history(
         return f"Error: {str(e)}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def search_clients_by_location(
     site_id: str,
     map_id: str,
@@ -4808,10 +4812,11 @@ async def search_clients_by_location(
         # Filter to clients on this map's APs
         clients = {}
         for s in results:
-            ap_mac = (s.get('ap_mac') or s.get('ap', '')).lower().replace('-', ':')
+            # API uses 'ap' and 'connect' (not 'ap_mac'/'connect_time')
+            ap_mac = (s.get('ap') or s.get('ap_mac') or '').lower().replace('-', ':')
             if ap_mac in aps:
                 mac = s.get('mac', '').lower()
-                t = s.get('connect_time') or s.get('timestamp')
+                t = s.get('connect') or s.get('connect_time') or s.get('timestamp') or 0
                 if mac and (mac not in clients or t > clients[mac]['t']):
                     clients[mac] = {
                         't': t,
@@ -4823,7 +4828,7 @@ async def search_clients_by_location(
             return f"No clients on {map_name} in last {duration}h."
 
         if format == "json":
-            return json.dumps({'map': map_name, 'clients': clients}, indent=2)
+            return truncate_response(json.dumps({'map': map_name, 'clients': clients}, indent=2))
 
         lines = [f"# Clients on {map_name} ({duration}h)\n"]
         lines.append("| MAC | Hostname | Last AP | Last Seen |")
