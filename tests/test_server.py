@@ -425,3 +425,67 @@ async def test_device_stats_fields_filter(mock_api):
     out = await jm.get_device_stats(site_id=SITE_ID, fields="status", format="json")
     data = out.structured_content["results"]
     assert data == [{"mac": "m1", "name": "AP-1", "status": "connected"}]
+
+
+# ----------------------------------------------------------------------------
+# troubleshoot_client composite
+# ----------------------------------------------------------------------------
+
+def _troubleshoot_handler(request):
+    path = request.url.path
+    now = int(time.time())
+    if "clients/search" in path:
+        return httpx.Response(200, json={"results": [{
+            "mac": "de:ad:be:ef:00:01", "hostname": "KristyHcBookAir",
+            "connected": False, "site_id": SITE_ID, "ssid": "GPCC",
+            "username": "kristy@gpcc.nsw.edu.au", "last_seen": now - 300,
+        }]})
+    if "nac_clients/events/search" in path:
+        return httpx.Response(200, json={"results": [
+            {"nac_result": "failure", "timestamp": now - 500, "auth_type": "dot1x",
+             "username": "kristy@gpcc.nsw.edu.au",
+             "radius_reply_message": "certificate expired"},
+            {"nac_result": "success", "timestamp": now - 90000, "auth_type": "dot1x",
+             "vlan": 240, "nac_rule_matched": "Staff-Devices"},
+        ]})
+    if "wired_clients/events/search" in path:
+        return httpx.Response(404)  # this part failing must not sink the report
+    if "clients/events/search" in path:
+        return httpx.Response(200, json={"results": [
+            {"type": "CLIENT_DHCP_FAILURE", "timestamp": now - 400, "ssid": "GPCC"},
+        ]})
+    if "clients/sessions/search" in path:
+        return httpx.Response(200, json={"results": [
+            {"ap": "aa:aa:aa:aa:aa:01", "connect": now - 7200, "ssid": "GPCC"},
+            {"ap": "aa:aa:aa:aa:aa:02", "connect": now - 3600, "ssid": "GPCC"},
+        ]})
+    return httpx.Response(500, text=f"unexpected path {path}")
+
+
+async def test_troubleshoot_client_builds_full_report(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    mock_api(_troubleshoot_handler)
+    out = await jm.troubleshoot_client(client_mac="DE:AD:BE:EF:00:01")
+    assert "KristyHcBookAir" in out
+    assert "CLIENT_DHCP_FAILURE" in out
+    assert "certificate expired" in out          # NAC failure reason surfaced
+    assert "Sessions in window:** 2" in out
+    assert "Distinct APs:** 2 (roaming" in out
+    assert "Staff-Devices" in out                # last successful NAC decision
+    assert "Not Checked" in out                  # wired part 404'd, noted not fatal
+
+
+async def test_troubleshoot_client_unknown_client(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+
+    def handler(request):
+        if "clients/search" in request.url.path:
+            return httpx.Response(200, json={"results": []})
+        if "nac_clients" in request.url.path:
+            return httpx.Response(200, json={"results": []})
+        return httpx.Response(500)
+
+    mock_api(handler)
+    out = await jm.troubleshoot_client(client_mac="00:00:00:00:00:99")
+    assert "not found" in out
+    assert "Error troubleshooting" not in out

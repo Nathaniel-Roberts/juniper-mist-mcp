@@ -2,7 +2,7 @@
 
 ## What This Is
 
-An MCP server exposing 47 read-only Juniper Mist API tools, built on the
+An MCP server exposing 50 read-only Juniper Mist API tools, built on the
 MCP Python SDK v2 (`MCPServer`). Installed by consumers via
 `uvx --from git+https://github.com/Nathaniel-Roberts/juniper-mist-mcp` —
 every push to main is what users get on their next fresh install.
@@ -60,6 +60,11 @@ Every tool follows the same pattern — copy an existing one in the right
 - Render epoch timestamps with `format_timestamp()` (server-local time
   with the zone visible); compact tables may keep short formats but must
   carry a `local_timezone_name()` note.
+- org_id parameters are `Optional[str] = None` resolved via
+  `resolve_org_id()` (falls back to MIST_ORG_ID). site_id parameters
+  accept names as well as UUIDs — resolve with `await resolve_site_id()`
+  as the first statement in the try block. Site lists are cached 60s via
+  `get_org_sites()`.
 - Docstring must include: summary, Args, Returns, an Example block with
   user phrasing, and Error Handling notes. The docstring is the tool
   description the model sees — write it for tool selection.
@@ -77,6 +82,8 @@ Every tool follows the same pattern — copy an existing one in the right
   list endpoints return bare arrays. Handle both.
 - Rate limit is 5,000 requests/hour per token.
 - `list_organizations` uses `/self` privileges, not `/orgs`.
+- `GET /orgs/{org_id}/stats/devices` defaults `type` to `ap` server-side;
+  always send type explicitly (see get_org_device_status).
 
 ## Phase 2: Write Operations (not started)
 

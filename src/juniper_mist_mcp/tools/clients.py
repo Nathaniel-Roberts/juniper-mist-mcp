@@ -1,5 +1,6 @@
 """Client troubleshooting tools for the Juniper Mist MCP server."""
 
+import asyncio
 import time
 from typing import Literal, Optional
 
@@ -8,6 +9,231 @@ from mcp.types import CallToolResult
 from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
+
+
+async def _best_effort(coro):
+    """Run one part of a composite lookup; failures become notes, not errors."""
+    try:
+        return await coro, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _results_of(data) -> list:
+    if data is None:
+        return []
+    return data.get("results", data) if isinstance(data, dict) else data
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=False)
+async def troubleshoot_client(
+    client_mac: str,
+    site_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+    duration: int = 24,
+    format: Literal["json", "markdown"] = "markdown"
+) -> str | CallToolResult:
+    """
+    Run a full troubleshooting workup for one client in a single call.
+
+    Combines what would otherwise be five separate lookups: current client
+    status, wireless client events, session history, NAC/802.1X events, and
+    wired client events. Each part is best-effort, so a missing NAC licence
+    or an unused event type does not block the rest of the report.
+
+    Use this FIRST when someone asks why a device or user cannot connect,
+    keeps dropping, or landed in the wrong VLAN.
+
+    Args:
+        client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
+        site_id: Site UUID or site name (optional; auto-detected from the
+                 client's last known site when omitted)
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
+        duration: Hours of history to analyze (default 24)
+        format: Response format
+
+    Returns:
+        A single report: identity and current status, connection failures
+        with reasons, session/roaming summary, and NAC decisions
+
+    Example:
+        User: "Why can't aa:bb:cc:dd:ee:ff get on the network?"
+        -> Use this tool with the client_mac
+
+        User: "Kristy's laptop keeps dropping off the wifi"
+        -> Find the MAC (search by hostname), then use this tool
+    """
+    try:
+        org_id = resolve_org_id(org_id)
+        mac = client_mac.lower().replace("-", ":")
+        end_time = int(time.time())
+        start_time = end_time - (duration * 3600)
+        window = {"start": start_time, "end": end_time}
+
+        # Step 1: find the client and its site
+        lookup, lookup_err = await _best_effort(mist_api_request(
+            f"/orgs/{org_id}/clients/search", params={"mac": mac, "limit": 1}
+        ))
+        client = (_results_of(lookup) or [None])[0]
+
+        if site_id:
+            site_id = await resolve_site_id(site_id, org_id)
+        elif client and client.get("site_id"):
+            site_id = client["site_id"]
+
+        # Step 2: gather evidence concurrently
+        nac_coro = _best_effort(mist_api_request(
+            f"/orgs/{org_id}/nac_clients/events/search",
+            params={"mac": mac, "limit": 200, **window},
+        ))
+        if site_id:
+            events_coro = _best_effort(mist_api_request(
+                f"/sites/{site_id}/clients/events/search",
+                params={"mac": mac, "limit": 200, **window},
+            ))
+            sessions_coro = _best_effort(mist_api_request(
+                f"/sites/{site_id}/clients/sessions/search",
+                params={"mac": mac, "limit": 100, **window},
+            ))
+            wired_coro = _best_effort(mist_api_request(
+                f"/sites/{site_id}/wired_clients/events/search",
+                params={"mac": mac, "limit": 100, **window},
+            ))
+            (events, events_err), (sessions, sessions_err), \
+                (nac, nac_err), (wired, wired_err) = await asyncio.gather(
+                    events_coro, sessions_coro, nac_coro, wired_coro)
+        else:
+            events = sessions = wired = None
+            events_err = sessions_err = wired_err = "no site known for this client"
+            nac, nac_err = await nac_coro
+
+        events_list = _results_of(events)
+        sessions_list = _results_of(sessions)
+        nac_list = _results_of(nac)
+        wired_list = _results_of(wired)
+
+        if format == "json":
+            return json_tool_result({
+                "mac": mac,
+                "client": client,
+                "site_id": site_id,
+                "events": events_list,
+                "sessions": sessions_list,
+                "nac_events": nac_list,
+                "wired_events": wired_list,
+                "errors": {k: v for k, v in {
+                    "client_lookup": lookup_err, "events": events_err,
+                    "sessions": sessions_err, "nac": nac_err, "wired": wired_err,
+                }.items() if v},
+            })
+
+        result = f"# Client Troubleshooting Report: `{mac}`\n\n"
+        result += f"**Window:** last {duration} hour(s)\n\n"
+
+        # Identity & current status
+        result += "## Current Status\n\n"
+        if client:
+            hostname = client.get("hostname")
+            if hostname:
+                result += f"- **Hostname:** {hostname}\n"
+            device = f"{client.get('manufacture', '')} {client.get('os', '')}".strip()
+            if device:
+                result += f"- **Device:** {device}\n"
+            result += f"- **Connected:** {'Yes' if client.get('connected') else 'No'}\n"
+            for label, key in (("SSID", "ssid"), ("IP", "ip"), ("VLAN", "vlan"),
+                               ("Username", "username"), ("NAC Role", "nac_role")):
+                if client.get(key):
+                    result += f"- **{label}:** {client[key]}\n"
+            ap = client.get("ap") or client.get("last_ap")
+            if ap:
+                result += f"- **AP:** {ap}\n"
+            if client.get("last_seen"):
+                result += f"- **Last Seen:** {format_timestamp(client['last_seen'])}\n"
+        else:
+            result += ("- Client not found in the org client index. It may never have "
+                       "connected, or the MAC may be wrong/randomised.\n")
+
+        # Failures first: NAC + wireless auth/dhcp/dns problems
+        nac_failures = [e for e in nac_list
+                        if (e.get("nac_result") or e.get("auth_result")) == "failure"
+                        or "DENY" in str(e.get("type", ""))]
+        problem_events = [e for e in events_list
+                          if any(w in str(e.get("type", "")).upper()
+                                 for w in ("FAIL", "DENY", "TIMEOUT", "REJECT"))]
+
+        result += "\n## Failures\n\n"
+        if not nac_failures and not problem_events:
+            result += "No authentication, DHCP, or DNS failures in the window.\n"
+        for e in (nac_failures + problem_events)[:15]:
+            ts = format_timestamp(e["timestamp"]) if e.get("timestamp") else "?"
+            reason = e.get("failure_reason") or e.get("reason") or \
+                e.get("radius_reply_message") or ""
+            line = f"- {ts}: **{e.get('type', 'failure')}**"
+            if e.get("ssid"):
+                line += f" on {e['ssid']}"
+            if e.get("username"):
+                line += f" as {e['username']}"
+            if reason:
+                line += f" — {reason}"
+            result += line + "\n"
+
+        # Session summary
+        result += "\n## Sessions\n\n"
+        if sessions_list:
+            aps = {}
+            for s in sessions_list:
+                ap = s.get("ap") or s.get("ap_mac") or "?"
+                aps[ap] = aps.get(ap, 0) + 1
+            result += f"- **Sessions in window:** {len(sessions_list)}\n"
+            result += f"- **Distinct APs:** {len(aps)}"
+            if len(aps) > 1:
+                result += " (roaming between them)"
+            result += "\n"
+            last = max(sessions_list,
+                       key=lambda s: s.get("connect") or s.get("timestamp") or 0)
+            ts = last.get("connect") or last.get("timestamp")
+            if ts:
+                result += f"- **Most recent session:** {format_timestamp(ts)}"
+                if last.get("ssid"):
+                    result += f" on {last['ssid']}"
+                result += "\n"
+        else:
+            result += "No wireless sessions found in the window.\n"
+
+        # NAC decisions (successes carry the policy outcome)
+        nac_ok = [e for e in nac_list
+                  if (e.get("nac_result") or e.get("auth_result")) == "success"]
+        if nac_ok:
+            result += "\n## NAC Decisions\n\n"
+            last_ok = max(nac_ok, key=lambda e: e.get("timestamp") or 0)
+            ts = format_timestamp(last_ok["timestamp"]) if last_ok.get("timestamp") else "?"
+            result += f"- **Last successful auth:** {ts}\n"
+            for label, key in (("Auth Type", "auth_type"), ("Assigned VLAN", "vlan"),
+                               ("NAC Rule", "nac_rule_matched"), ("Role", "nac_role")):
+                if last_ok.get(key):
+                    result += f"- **{label}:** {last_ok[key]}\n"
+
+        if wired_list:
+            result += f"\n## Wired Events ({len(wired_list)})\n\n"
+            for e in wired_list[:5]:
+                ts = format_timestamp(e["timestamp"]) if e.get("timestamp") else "?"
+                port = e.get("port_id", "?")
+                result += f"- {ts}: {e.get('type', '?')} on port {port}\n"
+
+        # Anything that could not be checked
+        notes = {"client lookup": lookup_err, "wireless events": events_err,
+                 "sessions": sessions_err, "NAC events": nac_err,
+                 "wired events": wired_err}
+        skipped = {k: v for k, v in notes.items() if v}
+        if skipped:
+            result += "\n## Not Checked\n\n"
+            for part, why in skipped.items():
+                result += f"- {part}: {why}\n"
+
+        return truncate_response(result)
+
+    except Exception as e:
+        return f"Error troubleshooting client: {str(e)}"
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)

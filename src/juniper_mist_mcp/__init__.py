@@ -62,6 +62,7 @@ from .tools.monitoring import (  # noqa: F401
     get_site_wan_stats,
 )
 from .tools.clients import (  # noqa: F401
+    troubleshoot_client,
     get_client_stats,
     get_client_by_mac,
     search_client_events,
