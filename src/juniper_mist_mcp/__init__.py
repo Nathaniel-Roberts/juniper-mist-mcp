@@ -10,8 +10,11 @@ Author: Claude
 License: MIT
 """
 
+import asyncio
 import os
 import json
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal, Optional, Any
 from mcp.server import MCPServer
@@ -21,12 +24,6 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file in current directory
 load_dotenv()
-
-# Initialize MCP server
-mcp = MCPServer("Juniper Mist")
-
-# All tools in this server are read-only (Phase 1)
-READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 # Configuration
 MIST_API_TOKEN = os.getenv("MIST_API_TOKEN")
@@ -43,8 +40,52 @@ if not MIST_API_TOKEN:
 
 
 # ============================================================================
-# Utility Functions
+# HTTP Client & Utility Functions
 # ============================================================================
+
+class MistAPIError(Exception):
+    """A Mist API request failed; the message is safe to show the user."""
+
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return the shared HTTP client, creating it on first use."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            base_url=MIST_API_BASE_URL,
+            headers={
+                "Authorization": f"Token {MIST_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+    return _http_client
+
+
+@asynccontextmanager
+async def _lifespan(server: MCPServer):
+    """Close the shared HTTP client when the server shuts down."""
+    global _http_client
+    try:
+        yield None
+    finally:
+        if _http_client is not None:
+            await _http_client.aclose()
+            _http_client = None
+
+
+# Initialize MCP server
+mcp = MCPServer("Juniper Mist", lifespan=_lifespan)
+
+# All tools in this server are read-only (Phase 1)
+READ_ONLY = ToolAnnotations(readOnlyHint=True)
+
+# 429 responses asking for a wait up to this long are retried once
+# automatically; longer waits are surfaced to the caller instead.
+MAX_RETRY_AFTER_SECONDS = 30
+
 
 async def mist_api_request(
     endpoint: str,
@@ -65,116 +106,72 @@ async def mist_api_request(
         Parsed JSON response
 
     Raises:
-        Exception with user-friendly error messages
+        MistAPIError with a user-friendly message
     """
-    url = f"{MIST_API_BASE_URL}{endpoint}"
-    headers = {
-        "Authorization": f"Token {MIST_API_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    client = _get_client()
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    for attempt in (1, 2):
         try:
             response = await client.request(
                 method=method,
-                url=url,
-                headers=headers,
+                url=endpoint,
                 params=params,
                 json=json_data
             )
-
-            # Handle rate limiting
-            if response.status_code == 429:
-                retry_after = response.headers.get("Retry-After", "60")
-                raise Exception(
-                    f"Rate limit exceeded (5,000 requests/hour). "
-                    f"Please wait {retry_after} seconds before retrying."
-                )
-
-            # Handle authentication errors
-            if response.status_code == 401:
-                raise Exception(
-                    "Authentication failed. Please check your MIST_API_TOKEN. "
-                    "You can generate a new token at: "
-                    "https://manage.mist.com > Organization > Settings > API Tokens"
-                )
-
-            # Handle forbidden
-            if response.status_code == 403:
-                raise Exception(
-                    "Access forbidden. Your API token may not have permission for this resource. "
-                    "Check token permissions in the Mist dashboard."
-                )
-
-            # Handle not found
-            if response.status_code == 404:
-                raise Exception(
-                    "Resource not found. Please verify the organization/site/device ID. "
-                    "Use list_organizations to see available organizations."
-                )
-
-            # Raise for other HTTP errors
-            response.raise_for_status()
-
-            return response.json()
-
         except httpx.TimeoutException:
-            raise Exception(
+            raise MistAPIError(
                 "Request timed out after 30 seconds. "
                 "Please check your network connection and try again."
             )
         except httpx.NetworkError as e:
-            raise Exception(
+            raise MistAPIError(
                 f"Network error: Unable to connect to Mist API at {MIST_API_BASE_URL}. "
                 f"Details: {str(e)}"
             )
-        except Exception as e:
-            # Re-raise our custom exceptions
-            if "Rate limit" in str(e) or "Authentication" in str(e) or "not found" in str(e):
-                raise
-            # Handle JSON decode errors
-            if "JSON" in str(e):
-                raise Exception(f"Invalid response from Mist API: {str(e)}")
-            raise
 
+        if response.status_code == 429:
+            try:
+                retry_after = int(response.headers.get("Retry-After", "60"))
+            except ValueError:
+                retry_after = 60
+            if attempt == 1 and retry_after <= MAX_RETRY_AFTER_SECONDS:
+                await asyncio.sleep(retry_after)
+                continue
+            raise MistAPIError(
+                f"Rate limit exceeded (5,000 requests/hour). "
+                f"Please wait {retry_after} seconds before retrying."
+            )
 
-def format_markdown_table(data: list[dict], columns: list[str], title: str = "") -> str:
-    """
-    Format a list of dictionaries as a Markdown table.
+        if response.status_code == 401:
+            raise MistAPIError(
+                "Authentication failed. Please check your MIST_API_TOKEN. "
+                "You can generate a new token at: "
+                "https://manage.mist.com > Organization > Settings > API Tokens"
+            )
 
-    Args:
-        data: List of dictionaries to format
-        columns: Column names to include
-        title: Optional title for the table
+        if response.status_code == 403:
+            raise MistAPIError(
+                "Access forbidden. Your API token may not have permission for this resource. "
+                "Check token permissions in the Mist dashboard."
+            )
 
-    Returns:
-        Formatted markdown table
-    """
-    if not data:
-        return f"# {title}\n\nNo data available.\n" if title else "No data available.\n"
+        if response.status_code == 404:
+            raise MistAPIError(
+                "Resource not found. Please verify the organization/site/device ID. "
+                "Use list_organizations to see available organizations."
+            )
 
-    result = ""
-    if title:
-        result += f"# {title}\n\n"
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            raise MistAPIError(
+                f"Mist API returned HTTP {response.status_code}: {response.text[:200]}"
+            )
 
-    # Create header
-    result += "| " + " | ".join(columns) + " |\n"
-    result += "| " + " | ".join(["---"] * len(columns)) + " |\n"
-
-    # Add rows
-    for item in data:
-        row = []
-        for col in columns:
-            value = item.get(col, "N/A")
-            # Handle nested dicts/lists
-            if isinstance(value, (dict, list)):
-                value = json.dumps(value)
-            # Escape pipe characters
-            value = str(value).replace("|", "\\|")
-            row.append(value)
-        result += "| " + " | ".join(row) + " |\n"
-
-    return result
+        try:
+            return response.json()
+        except ValueError as e:
+            raise MistAPIError(f"Invalid response from Mist API: {str(e)}")
 
 
 def format_as_markdown(data: Any, title: str) -> str:
@@ -1919,7 +1916,6 @@ async def search_client_events(
         - Use longer duration if recent events not found
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -2063,7 +2059,6 @@ async def get_client_session_history(
         - Increase duration if looking for older sessions
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -2212,7 +2207,6 @@ async def search_nac_client_events(
         - Requires NAC/802.1X to be configured
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -2678,7 +2672,6 @@ async def search_wired_client_events(
         - Requires switches with 802.1X/NAC configured
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3035,7 +3028,6 @@ async def get_nac_portal_logs(
         - Requires NAC portal to be configured
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3296,7 +3288,6 @@ async def get_sle_summary(
         -> Use with metric="coverage", duration=168
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3423,7 +3414,6 @@ async def get_sle_histogram(
         -> Use with metric="coverage", duration=168
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3554,7 +3544,6 @@ async def get_sle_impact(
         -> Use with metric="throughput"
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3663,7 +3652,6 @@ async def get_sle_impacted_aps(
         -> Use with metric="time-to-connect"
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -3744,7 +3732,6 @@ async def get_sle_impacted_clients(
         -> Use with metric="roaming"
     """
     try:
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -4437,7 +4424,6 @@ async def get_site_insights(
     """
     try:
         # Calculate time range
-        import time
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -4635,7 +4621,6 @@ async def get_client_location_history(
         User: "Track location yesterday 8am-4pm"
         -> Use with start="2026-02-02 08:00", end="2026-02-02 16:00"
     """
-    import time
 
     try:
         # Handle start/end time parameters
@@ -4790,7 +4775,6 @@ async def search_clients_by_location(
         User: "Who has been on the 3rd floor?"
         -> Use with map_id for 3rd floor
     """
-    import time
 
     try:
         # Get map and its APs
