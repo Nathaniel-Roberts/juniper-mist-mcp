@@ -57,10 +57,7 @@ packages = ["src/juniper_mist_mcp"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/juniper_mist_mcp/*.py",
+    "src/juniper_mist_mcp/**/*.py",
     "pyproject.toml",
     "README.md",
 ]
-
-[tool.hatch.build]
-sources = ["src"]

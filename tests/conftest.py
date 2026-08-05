@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 import juniper_mist_mcp as jm
+from juniper_mist_mcp import api as jm_api
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def mock_api():
         mock_api(handler)
     """
     def install(handler):
-        jm._http_client = httpx.AsyncClient(
+        jm_api._http_client = httpx.AsyncClient(
             base_url=jm.MIST_API_BASE_URL,
             headers={
                 "Authorization": f"Token {os.environ['MIST_API_TOKEN']}",
@@ -32,7 +33,7 @@ def mock_api():
             },
             transport=httpx.MockTransport(handler),
         )
-        return jm._http_client
+        return jm_api._http_client
 
     yield install
-    jm._http_client = None
+    jm_api._http_client = None
