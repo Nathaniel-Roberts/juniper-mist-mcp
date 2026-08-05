@@ -384,7 +384,7 @@ async def list_sites(
         if not sites:
             return f"# Sites in Organization {org_id}\n\nNo sites found."
 
-        result = f"# Sites in Organization\n\n"
+        result = "# Sites in Organization\n\n"
         result += f"Found {len(sites)} site(s)\n\n"
 
         for site in sites:
@@ -502,7 +502,7 @@ async def get_site_stats(
         if format == "json":
             return truncate_response(json.dumps(stats, indent=2))
 
-        result = f"# Site Statistics\n\n"
+        result = "# Site Statistics\n\n"
 
         if 'num_clients' in stats:
             result += f"- **Connected Clients:** {stats['num_clients']}\n"
@@ -515,17 +515,17 @@ async def get_site_stats(
 
         # Device breakdown
         if 'num_aps' in stats:
-            result += f"\n## Access Points\n"
+            result += "\n## Access Points\n"
             result += f"- **Total APs:** {stats.get('num_aps', 0)}\n"
             result += f"- **APs Connected:** {stats.get('num_aps_connected', 0)}\n"
 
         if 'num_switches' in stats:
-            result += f"\n## Switches\n"
+            result += "\n## Switches\n"
             result += f"- **Total Switches:** {stats.get('num_switches', 0)}\n"
             result += f"- **Switches Connected:** {stats.get('num_switches_connected', 0)}\n"
 
         if 'num_gateways' in stats:
-            result += f"\n## Gateways\n"
+            result += "\n## Gateways\n"
             result += f"- **Total Gateways:** {stats.get('num_gateways', 0)}\n"
             result += f"- **Gateways Connected:** {stats.get('num_gateways_connected', 0)}\n"
 
@@ -580,7 +580,7 @@ async def get_device_inventory(
             return truncate_response(json.dumps(inventory, indent=2))
 
         if not inventory:
-            return f"# Device Inventory\n\nNo devices found in inventory."
+            return "# Device Inventory\n\nNo devices found in inventory."
 
         result = f"# Device Inventory ({device_type})\n\n"
         result += f"Found {len(inventory)} device(s)\n\n"
@@ -667,9 +667,9 @@ async def get_device_stats(
             return truncate_response(json.dumps(stats, indent=2))
 
         if not stats:
-            return f"# Device Statistics\n\nNo devices found matching the filters."
+            return "# Device Statistics\n\nNo devices found matching the filters."
 
-        result = f"# Device Statistics\n\n"
+        result = "# Device Statistics\n\n"
         result += f"Found {len(stats)} device(s)\n\n"
 
         # Table header
@@ -747,9 +747,9 @@ async def get_alarms(
         alarms = response.get("results", []) if isinstance(response, dict) else response
 
         if not alarms:
-            return f"# Network Alarms\n\nNo active alarms found. Network is healthy!"
+            return "# Network Alarms\n\nNo active alarms found. Network is healthy!"
 
-        result = f"# Network Alarms\n\n"
+        result = "# Network Alarms\n\n"
         result += f"Found {len(alarms)} active alarm(s)\n\n"
 
         # Group by severity
@@ -828,9 +828,9 @@ async def get_client_stats(
             return truncate_response(json.dumps(clients, indent=2))
 
         if not clients:
-            return f"# Connected Clients\n\nNo clients currently connected to site."
+            return "# Connected Clients\n\nNo clients currently connected to site."
 
-        result = f"# Connected Clients\n\n"
+        result = "# Connected Clients\n\n"
         result += f"Total: {len(clients)} client(s)\n\n"
 
         # Table header
@@ -939,7 +939,7 @@ async def search_organization_devices(
             inventory = await mist_api_request(f"/orgs/{org_id}/inventory", params=fallback_params)
 
             if not inventory:
-                return f"# Device Search Results\n\nNo devices in inventory to search."
+                return "# Device Search Results\n\nNo devices in inventory to search."
 
             # Search across relevant fields (client-side)
             search_lower = search_term.lower()
@@ -978,7 +978,7 @@ async def search_organization_devices(
         if not matches:
             return f"# Device Search Results\n\nNo devices found matching '{search_term}'."
 
-        result = f"# Device Search Results\n\n"
+        result = "# Device Search Results\n\n"
         result += f"Found {len(matches)} device(s) matching '{search_term}'\n\n"
 
         # Table format
@@ -1056,13 +1056,13 @@ async def list_wlans(
             result += f"- **Security:** {auth_type}\n"
 
             if wlan.get('auth', {}).get('psk'):
-                result += f"- **PSK Configured:** Yes\n"
+                result += "- **PSK Configured:** Yes\n"
 
             # VLAN
             if 'vlan_id' in wlan:
                 result += f"- **VLAN ID:** {wlan['vlan_id']}\n"
             if wlan.get('vlan_enabled'):
-                result += f"- **VLAN Enabled:** Yes\n"
+                result += "- **VLAN Enabled:** Yes\n"
 
             # Band
             if 'band' in wlan:
@@ -1073,7 +1073,7 @@ async def list_wlans(
 
             # Guest settings
             if wlan.get('portal_enabled'):
-                result += f"- **Captive Portal:** Enabled\n"
+                result += "- **Captive Portal:** Enabled\n"
 
             result += "\n"
 
@@ -1764,19 +1764,19 @@ async def get_org_stats_summary(
         result += f"- **Devices Disconnected:** {org_stats.get('num_devices_disconnected', 'N/A')}\n"
 
         if 'num_aps' in org_stats:
-            result += f"\n### Access Points\n"
+            result += "\n### Access Points\n"
             result += f"- **Total APs:** {org_stats.get('num_aps', 0)}\n"
             result += f"- **APs Connected:** {org_stats.get('num_aps_connected', 0)}\n"
             result += f"- **APs Disconnected:** {org_stats.get('num_aps_disconnected', 0)}\n"
 
         if 'num_switches' in org_stats:
-            result += f"\n### Switches\n"
+            result += "\n### Switches\n"
             result += f"- **Total Switches:** {org_stats.get('num_switches', 0)}\n"
             result += f"- **Switches Connected:** {org_stats.get('num_switches_connected', 0)}\n"
             result += f"- **Switches Disconnected:** {org_stats.get('num_switches_disconnected', 0)}\n"
 
         if 'num_gateways' in org_stats:
-            result += f"\n### Gateways\n"
+            result += "\n### Gateways\n"
             result += f"- **Total Gateways:** {org_stats.get('num_gateways', 0)}\n"
             result += f"- **Gateways Connected:** {org_stats.get('num_gateways_connected', 0)}\n"
 
@@ -1828,7 +1828,7 @@ async def get_device_config(
         if format == "json":
             return truncate_response(json.dumps(config, indent=2))
 
-        result = f"# Device Configuration\n\n"
+        result = "# Device Configuration\n\n"
         result += f"- **Name:** {config.get('name', 'N/A')}\n"
         result += f"- **Device ID:** `{config.get('id', 'N/A')}`\n"
         result += f"- **MAC:** {config.get('mac', 'N/A')}\n"
@@ -2079,7 +2079,7 @@ async def get_client_session_history(
         if not results_list:
             return f"# Client Session History\n\nNo sessions found for client `{client_mac}` in the last {duration} hour(s)."
 
-        result = f"# Client Session History\n\n"
+        result = "# Client Session History\n\n"
         result += f"**Client MAC:** `{client_mac}`\n"
         result += f"**Time Range:** Last {duration} hour(s)\n"
         result += f"**Total Sessions:** {len(results_list)}\n\n"
@@ -2146,7 +2146,7 @@ async def get_client_session_history(
 
             # Disconnect reason
             if session.get('disconnect_reason'):
-                result += f"\n### Disconnect\n\n"
+                result += "\n### Disconnect\n\n"
                 result += f"- **Reason:** {session['disconnect_reason']}\n"
 
             result += "\n---\n\n"
@@ -2812,7 +2812,7 @@ async def get_client_by_mac(
 
         client = results_list[0]
 
-        result = f"# Client Details\n\n"
+        result = "# Client Details\n\n"
         result += f"**MAC Address:** `{client.get('mac', client_mac)}`\n\n"
 
         # Basic info
@@ -2969,7 +2969,7 @@ async def get_org_idps(
             if idp.get('oauth_type'):
                 result += f"- **OAuth Type:** {idp['oauth_type']}\n"
             if idp.get('scim_enabled'):
-                result += f"- **SCIM Enabled:** Yes\n"
+                result += "- **SCIM Enabled:** Yes\n"
 
             # Group/role mapping
             if idp.get('group_filter'):
@@ -2981,7 +2981,7 @@ async def get_org_idps(
 
             # MDM integration
             if idp.get('mxedge_proxy_enabled'):
-                result += f"- **MXEdge Proxy:** Enabled\n"
+                result += "- **MXEdge Proxy:** Enabled\n"
 
             result += "\n"
 
@@ -3872,7 +3872,7 @@ async def list_site_maps(
 
             # Image info
             if map_info.get('url'):
-                result += f"- **Has Image:** Yes\n"
+                result += "- **Has Image:** Yes\n"
 
             # Location
             if map_info.get('latlng'):
@@ -3881,7 +3881,7 @@ async def list_site_maps(
 
             # Locked status
             if map_info.get('locked'):
-                result += f"- **Locked:** Yes (no edits allowed)\n"
+                result += "- **Locked:** Yes (no edits allowed)\n"
 
             result += "\n"
 
@@ -3979,7 +3979,7 @@ async def get_map_info(
         # Walls (for RF planning)
         if map_info.get('walls'):
             walls = map_info['walls']
-            result += f"\n## Walls\n\n"
+            result += "\n## Walls\n\n"
             result += f"- **Wall Segments:** {len(walls)}\n"
 
         # Beacons
@@ -4058,7 +4058,7 @@ async def list_zones(
                 result += f"- **Occupancy Limit:** {zone['occupancy_limit']}\n"
 
             if zone.get('asset_filter'):
-                result += f"- **Asset Filter:** Configured\n"
+                result += "- **Asset Filter:** Configured\n"
 
             result += "\n"
 
@@ -4568,7 +4568,7 @@ async def get_ap_radio_status(
                 # 2.4 GHz
                 if (band in ["24", "all"]) and radios.get('band_24'):
                     r24 = radios['band_24']
-                    result += f"\n**2.4 GHz Radio:**\n"
+                    result += "\n**2.4 GHz Radio:**\n"
                     result += f"  - Channel: {r24.get('channel', 'N/A')}\n"
                     result += f"  - Power: {r24.get('power', 'N/A')} dBm\n"
                     result += f"  - Bandwidth: {r24.get('bandwidth', 'N/A')} MHz\n"
@@ -4579,7 +4579,7 @@ async def get_ap_radio_status(
                 # 5 GHz
                 if (band in ["5", "all"]) and radios.get('band_5'):
                     r5 = radios['band_5']
-                    result += f"\n**5 GHz Radio:**\n"
+                    result += "\n**5 GHz Radio:**\n"
                     result += f"  - Channel: {r5.get('channel', 'N/A')}\n"
                     result += f"  - Power: {r5.get('power', 'N/A')} dBm\n"
                     result += f"  - Bandwidth: {r5.get('bandwidth', 'N/A')} MHz\n"
@@ -4590,7 +4590,7 @@ async def get_ap_radio_status(
                 # 6 GHz
                 if (band in ["6", "all"]) and radios.get('band_6'):
                     r6 = radios['band_6']
-                    result += f"\n**6 GHz Radio:**\n"
+                    result += "\n**6 GHz Radio:**\n"
                     result += f"  - Channel: {r6.get('channel', 'N/A')}\n"
                     result += f"  - Power: {r6.get('power', 'N/A')} dBm\n"
                     result += f"  - Bandwidth: {r6.get('bandwidth', 'N/A')} MHz\n"
