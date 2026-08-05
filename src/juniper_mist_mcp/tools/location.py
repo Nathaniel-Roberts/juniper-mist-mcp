@@ -146,8 +146,11 @@ async def get_map_info(
     try:
         map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
 
+        # AP positions (placements live on the device objects, not the map)
+        aps = await _get_map_aps(site_id, map_id, map_info)
+
         if format == "json":
-            return truncate_response(json.dumps(map_info, indent=2))
+            return truncate_response(json.dumps({**map_info, "aps": aps}, indent=2))
 
         name = map_info.get('name', 'Unnamed Map')
         result = f"# Map: {name}\n\n"
@@ -172,8 +175,6 @@ async def get_map_info(
             latlng = map_info['latlng']
             result += f"- **Geo Location:** {latlng.get('lat')}, {latlng.get('lng')}\n"
 
-        # AP positions (placements live on the device objects, not the map)
-        aps = await _get_map_aps(site_id, map_id, map_info)
         if aps:
             result += f"\n## Access Points ({len(aps)})\n\n"
             result += "| Name | MAC | X (m) | Y (m) | Height |\n"

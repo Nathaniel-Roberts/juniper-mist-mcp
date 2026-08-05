@@ -153,6 +153,13 @@ async def test_get_map_info_lists_placed_aps(mock_api):
     assert "OtherFloor-AP" not in out and "Unplaced-AP" not in out
 
 
+async def test_get_map_info_json_includes_placed_aps(mock_api):
+    mock_api(_map_and_devices_handler)
+    out = await jm.get_map_info(site_id="s", map_id=MAP_ID, format="json")
+    data = __import__("json").loads(out)
+    assert [ap["name"] for ap in data["aps"]] == ["Lib-NorthEast", "Lib-West"]
+
+
 async def test_search_clients_by_location_matches_real_fields(mock_api):
     mock_api(_map_and_devices_handler)
     out = await jm.search_clients_by_location(site_id="s", map_id=MAP_ID)
