@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import re
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -149,3 +151,69 @@ async def mist_api_request(
             return response.json()
         except ValueError as e:
             raise MistAPIError(f"Invalid response from Mist API: {str(e)}")
+
+
+# ============================================================================
+# Org / site resolution
+# ============================================================================
+
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
+
+# Site lists are near-static; cache briefly to keep name resolution from
+# burning rate limit when an agent makes many site-scoped calls.
+SITE_CACHE_TTL_SECONDS = 60.0
+_sites_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def resolve_org_id(org_id: Optional[str] = None) -> str:
+    """Return org_id, falling back to the MIST_ORG_ID environment variable."""
+    org = org_id or os.getenv("MIST_ORG_ID")
+    if not org:
+        raise MistAPIError(
+            "No org_id provided and MIST_ORG_ID is not set. Pass org_id explicitly "
+            "(use list_organizations to find it) or set MIST_ORG_ID in the environment."
+        )
+    return org
+
+
+async def get_org_sites(org_id: str) -> list[dict]:
+    """Get the org's sites, cached for SITE_CACHE_TTL_SECONDS."""
+    cached = _sites_cache.get(org_id)
+    if cached and time.monotonic() - cached[0] < SITE_CACHE_TTL_SECONDS:
+        return cached[1]
+    sites = await mist_api_request(f"/orgs/{org_id}/sites")
+    _sites_cache[org_id] = (time.monotonic(), sites)
+    return sites
+
+
+async def resolve_site_id(site_id: str, org_id: Optional[str] = None) -> str:
+    """
+    Accept a site UUID or a site name and return the UUID.
+
+    Names are matched against the org's site list: exact match first
+    (case-insensitive), then unique substring match. Ambiguous or unknown
+    names raise MistAPIError listing the candidates.
+    """
+    site = (site_id or "").strip()
+    if _UUID_RE.fullmatch(site):
+        return site
+
+    org = resolve_org_id(org_id)
+    sites = await get_org_sites(org)
+    wanted = site.lower()
+
+    exact = [s for s in sites if s.get("name", "").lower() == wanted]
+    if len(exact) == 1:
+        return exact[0]["id"]
+
+    partial = [s for s in sites if wanted in s.get("name", "").lower()]
+    if len(partial) == 1:
+        return partial[0]["id"]
+    if len(partial) > 1:
+        names = ", ".join(s.get("name", "?") for s in partial)
+        raise MistAPIError(f"Site name '{site_id}' is ambiguous; matches: {names}")
+
+    names = ", ".join(s.get("name", "?") for s in sites[:20])
+    raise MistAPIError(f"No site named '{site_id}'. Sites in this org: {names}")

@@ -5,14 +5,14 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_nac_client_events(
-    org_id: str,
+    org_id: Optional[str] = None,
     site_id: Optional[str] = None,
     client_mac: Optional[str] = None,
     username: Optional[str] = None,
@@ -29,7 +29,7 @@ async def search_nac_client_events(
     failures, and policy matches. Critical for troubleshooting authentication issues.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         site_id: Optional site UUID to filter by site
         client_mac: Optional client MAC address to filter
         username: Optional username to filter (for 802.1X)
@@ -57,6 +57,9 @@ async def search_nac_client_events(
         - Requires NAC/802.1X to be configured
     """
     try:
+        org_id = resolve_org_id(org_id)
+        if site_id:
+            site_id = await resolve_site_id(site_id, org_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -186,7 +189,7 @@ async def search_nac_client_events(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_rules(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -197,7 +200,7 @@ async def get_nac_rules(
     why clients are assigned to specific VLANs or denied access.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -215,6 +218,7 @@ async def get_nac_rules(
         - NAC rules require appropriate license
     """
     try:
+        org_id = resolve_org_id(org_id)
         rules = await mist_api_request(f"/orgs/{org_id}/nacrules")
 
         if format == "json":
@@ -296,7 +300,7 @@ async def get_nac_rules(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_tags(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -306,7 +310,7 @@ async def get_nac_tags(
     They can be assigned by RADIUS, IdP, or NAC rules.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -323,6 +327,7 @@ async def get_nac_tags(
         - Returns empty if no NAC tags configured
     """
     try:
+        org_id = resolve_org_id(org_id)
         tags = await mist_api_request(f"/orgs/{org_id}/nactags")
 
         if format == "json":
@@ -372,7 +377,7 @@ async def get_nac_tags(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_radius_config(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -383,7 +388,7 @@ async def get_org_radius_config(
     troubleshooting 802.1X and NAC authentication issues.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -401,6 +406,7 @@ async def get_org_radius_config(
         - Does not show shared secrets for security
     """
     try:
+        org_id = resolve_org_id(org_id)
         # Get org settings which includes RADIUS config
         org_settings = await mist_api_request(f"/orgs/{org_id}/setting")
 
@@ -477,7 +483,7 @@ async def get_org_radius_config(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_idps(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -487,7 +493,7 @@ async def get_org_idps(
     including LDAP, Azure AD, Okta, and other SAML/OAuth providers.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -505,6 +511,7 @@ async def get_org_idps(
         - Does not show sensitive credentials
     """
     try:
+        org_id = resolve_org_id(org_id)
         # IdPs are under the SSO endpoint in Mist API
         idps = await mist_api_request(f"/orgs/{org_id}/ssos")
 
@@ -571,7 +578,7 @@ async def get_org_idps(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_nac_portal_logs(
-    org_id: str,
+    org_id: Optional[str] = None,
     site_id: Optional[str] = None,
     nac_portal_id: Optional[str] = None,
     duration: int = 24,
@@ -585,7 +592,7 @@ async def get_nac_portal_logs(
     sponsor approvals, and self-registration events.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         site_id: Optional site UUID to filter
         nac_portal_id: Optional NAC portal ID to filter
         duration: Hours of history (default 24)
@@ -607,6 +614,9 @@ async def get_nac_portal_logs(
         - Requires NAC portal to be configured
     """
     try:
+        org_id = resolve_org_id(org_id)
+        if site_id:
+            site_id = await resolve_site_id(site_id, org_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 

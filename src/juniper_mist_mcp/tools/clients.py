@@ -5,14 +5,13 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_stats(
-    org_id: str,
     site_id: str,
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
@@ -24,8 +23,7 @@ async def get_client_stats(
     including device types, connection details, and performance metrics.
 
     Args:
-        org_id: Organization UUID
-        site_id: Site UUID to get clients from
+        site_id: Site UUID or site name (e.g. "GPCC") to get clients from
         limit: Maximum clients to return (default 100)
         format: Response format
 
@@ -44,6 +42,7 @@ async def get_client_stats(
         - Use list_sites to get valid site_id values
     """
     try:
+        site_id = await resolve_site_id(site_id)
         endpoint = f"/sites/{site_id}/stats/clients"
         params = {"limit": limit}
 
@@ -83,8 +82,8 @@ async def get_client_stats(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_client_by_mac(
-    org_id: str,
     client_mac: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -95,8 +94,8 @@ async def get_client_by_mac(
     Searches across the entire organization.
 
     Args:
-        org_id: Organization UUID
         client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -114,6 +113,7 @@ async def get_client_by_mac(
         - Shows last known info if client currently disconnected
     """
     try:
+        org_id = resolve_org_id(org_id)
         mac_normalized = client_mac.lower().replace("-", ":")
 
         # Search for the client across the org
@@ -235,7 +235,7 @@ async def search_client_events(
     client connectivity problems.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         client_mac: Optional client MAC address to filter events for specific client
         event_type: Optional event type filter (e.g., "CLIENT_AUTH_FAILURE", "CLIENT_CONNECTED",
                    "CLIENT_DISCONNECTED", "CLIENT_ROAM", "CLIENT_DHCP_FAILURE")
@@ -262,6 +262,7 @@ async def search_client_events(
         - Use longer duration if recent events not found
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -384,7 +385,7 @@ async def get_client_session_history(
     Essential for troubleshooting individual client issues.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
         duration: Hours of history to retrieve (default 24)
         format: Response format
@@ -404,6 +405,7 @@ async def get_client_session_history(
         - Increase duration if looking for older sessions
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -519,7 +521,7 @@ async def search_wired_client_events(
     troubleshooting wired NAC and port security issues.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         client_mac: Optional client MAC address to filter
         switch_mac: Optional switch MAC to filter events for specific switch
         port_id: Optional port identifier (e.g., "ge-0/0/1")
@@ -543,6 +545,7 @@ async def search_wired_client_events(
         - Requires switches with 802.1X/NAC configured
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 

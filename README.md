@@ -22,7 +22,14 @@ Add to your project's `.env` file:
 
 ```
 MIST_API_TOKEN=your_token_here
+
+# Optional but recommended if you have one organization: tools then
+# no longer need an org_id argument
+MIST_ORG_ID=your_org_uuid
 ```
+
+With `MIST_ORG_ID` set, site-scoped tools also accept site **names**
+("GPCC", "Library") anywhere they take a site_id.
 
 ### Step 2: Add to your `.mcp.json`
 

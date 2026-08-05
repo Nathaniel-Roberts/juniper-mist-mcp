@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_site_id
 from ..formatting import (
     format_timestamp,
     json_tool_result,
@@ -45,7 +45,7 @@ async def list_site_maps(
     with their dimensions, AP placements, and zone configurations.
 
     Args:
-        site_id: Site UUID (get from list_sites)
+        site_id: Site UUID or site name (e.g. "GPCC") (get from list_sites)
         format: Response format - "markdown" for readability, "json" for structured data
 
     Returns:
@@ -63,6 +63,7 @@ async def list_site_maps(
         - Maps are required for location services
     """
     try:
+        site_id = await resolve_site_id(site_id)
         maps = await mist_api_request(f"/sites/{site_id}/maps")
 
         if format == "json":
@@ -131,7 +132,7 @@ async def get_map_info(
     zones, beacons, and other overlay objects.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         map_id: Map UUID (get from list_site_maps)
         format: Response format
 
@@ -150,6 +151,7 @@ async def get_map_info(
         - Use list_site_maps to get valid map IDs
     """
     try:
+        site_id = await resolve_site_id(site_id)
         map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
 
         # AP positions (placements live on the device objects, not the map)
@@ -234,7 +236,7 @@ async def list_zones(
     occupancy tracking, and triggering location-based events.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         format: Response format
 
     Returns:
@@ -252,6 +254,7 @@ async def list_zones(
         - Zones require maps to be configured first
     """
     try:
+        site_id = await resolve_site_id(site_id)
         zones = await mist_api_request(f"/sites/{site_id}/zones")
 
         if format == "json":
@@ -307,7 +310,7 @@ async def list_assets(
     including their current status, location, and battery level.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         limit: Maximum assets to return (default 100)
         format: Response format
 
@@ -326,6 +329,7 @@ async def list_assets(
         - Requires asset tracking license
     """
     try:
+        site_id = await resolve_site_id(site_id)
         assets = await mist_api_request(
             f"/sites/{site_id}/assets",
             params={"limit": limit}
@@ -387,7 +391,7 @@ async def get_asset_stats(
     for tracked BLE assets.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         limit: Maximum assets to return (default 100)
         format: Response format
 
@@ -406,6 +410,7 @@ async def get_asset_stats(
         - Requires asset tracking to be enabled
     """
     try:
+        site_id = await resolve_site_id(site_id)
         stats = await mist_api_request(
             f"/sites/{site_id}/stats/assets",
             params={"limit": limit}
@@ -471,7 +476,7 @@ async def search_assets(
     Searches across all assets at a site to find matches.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         search_term: Search string (name or MAC address)
         limit: Maximum results to return
         format: Response format
@@ -491,6 +496,7 @@ async def search_assets(
         - Search is case-insensitive
     """
     try:
+        site_id = await resolve_site_id(site_id)
         # Get all assets and filter locally
         assets = await mist_api_request(
             f"/sites/{site_id}/assets",
@@ -552,7 +558,7 @@ async def get_discovered_assets(
     haven't been configured as tracked assets yet.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         limit: Maximum discoveries to return (default 100)
         format: Response format
 
@@ -571,6 +577,7 @@ async def get_discovered_assets(
         - Requires BLE scanning to be enabled on APs
     """
     try:
+        site_id = await resolve_site_id(site_id)
         discovered = await mist_api_request(
             f"/sites/{site_id}/stats/discovered_assets",
             params={"limit": limit}
@@ -640,7 +647,7 @@ async def get_client_location_history(
     AP it connected to. Uses session data + AP names from device inventory.
 
     Args:
-        site_id: Site UUID (get from list_sites)
+        site_id: Site UUID or site name (e.g. "GPCC") (get from list_sites)
         client_mac: Client MAC address (format: aa:bb:cc:dd:ee:ff)
         duration: Hours of history (default 24, max 168) - used if start/end not provided
         start: Start time as "YYYY-MM-DD HH:MM" (optional, local timezone of the machine running this server)
@@ -659,6 +666,7 @@ async def get_client_location_history(
     """
 
     try:
+        site_id = await resolve_site_id(site_id)
         # Handle start/end time parameters
         if start and end:
             try:
@@ -798,7 +806,7 @@ async def search_clients_by_location(
     Find all clients that have been on a specific floor plan.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         map_id: Map/floor UUID (get from list_site_maps)
         duration: Hours to search back (default 1)
         limit: Max clients to return (default 50)
@@ -813,6 +821,7 @@ async def search_clients_by_location(
     """
 
     try:
+        site_id = await resolve_site_id(site_id)
         # Get map and its APs (placements live on the device objects, not the map)
         map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
         map_name = map_info.get('name', 'Map')

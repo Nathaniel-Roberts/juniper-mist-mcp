@@ -1,17 +1,17 @@
 """Monitoring tools for the Juniper Mist MCP server."""
 
-from typing import Literal
+from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_alarms(
-    org_id: str,
+    org_id: Optional[str] = None,
     severity: Literal["critical", "warn", "info", "all"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
@@ -23,7 +23,7 @@ async def get_alarms(
     configuration issues, and security alerts.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         severity: Filter by severity level - "critical", "warn", "info", or "all"
         limit: Maximum alarms to return (default 50)
         format: Response format
@@ -43,6 +43,7 @@ async def get_alarms(
         - Use get_device_stats to identify offline devices
     """
     try:
+        org_id = resolve_org_id(org_id)
         params = {"limit": limit}
         if severity != "all":
             params["severity"] = severity
@@ -95,7 +96,7 @@ async def get_alarms(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_marvis_actions(
-    org_id: str,
+    org_id: Optional[str] = None,
     category: Literal["all", "wired", "wireless", "wan", "switch", "ap", "gateway"] = "all",
     status: Literal["all", "open", "resolved"] = "all",
     limit: int = 50,
@@ -109,7 +110,7 @@ async def get_marvis_actions(
     including connectivity issues, loop detection, coverage problems, and more.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         category: Filter by category - "wired", "wireless", "wan", "switch", "ap", "gateway", or "all"
         status: Filter by status - "open" (active issues), "resolved", or "all"
         limit: Maximum actions to return (default 50)
@@ -133,6 +134,7 @@ async def get_marvis_actions(
         - Requires Marvis subscription/license for full functionality
     """
     try:
+        org_id = resolve_org_id(org_id)
         params = {"limit": limit}
 
         # The Marvis API uses different parameter names
@@ -247,7 +249,7 @@ async def get_site_wan_stats(
     for sites with Mist Edge or gateway devices.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         format: Response format
 
     Returns:
@@ -265,6 +267,7 @@ async def get_site_wan_stats(
         - Requires gateway/edge device at the site
     """
     try:
+        site_id = await resolve_site_id(site_id)
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params={"type": "gateway"})
 
         if format == "json":

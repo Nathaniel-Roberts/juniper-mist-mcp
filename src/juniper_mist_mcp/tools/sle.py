@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_site_id
 from ..formatting import json_tool_result, local_timezone_name, truncate_response
 from ..server import READ_ONLY, mcp
 
@@ -21,7 +21,7 @@ def _build_sle_scope_path(
 
     Args:
         scope: Scope level - "site", "ap", or "client"
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         scope_id: Required if scope is "ap" or "client" - the AP MAC or client MAC
 
     Returns:
@@ -56,7 +56,7 @@ async def get_sle_metrics(
     shows which metrics are available and their current status.
 
     Args:
-        site_id: Site UUID to get SLE metrics for
+        site_id: Site UUID or site name (e.g. "GPCC") to get SLE metrics for
         scope: Scope level - "site" for overall, "ap" for specific AP, "client" for specific client
         scope_id: Required if scope is "ap" or "client" - the AP MAC or client MAC
         format: Response format
@@ -81,6 +81,7 @@ async def get_sle_metrics(
         -> Use this tool to list SLE options
     """
     try:
+        site_id = await resolve_site_id(site_id)
         # Build the scope path
         scope_path, error = _build_sle_scope_path(scope, site_id, scope_id)
         if error:
@@ -150,7 +151,7 @@ async def get_sle_summary(
     along with the number of samples and degraded samples.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Which SLE metric to query
         scope: Scope level - "site", "ap", or "client"
         scope_id: Required if scope is "ap" or "client"
@@ -171,6 +172,7 @@ async def get_sle_summary(
         -> Use with metric="coverage", duration=168
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -278,7 +280,7 @@ async def get_sle_histogram(
     varied across the specified duration.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Which SLE metric to query
         scope: Scope level - "site", "ap", or "client"
         scope_id: Required if scope is "ap" or "client"
@@ -296,6 +298,7 @@ async def get_sle_histogram(
         -> Use with metric="coverage", duration=168
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -401,7 +404,7 @@ async def get_sle_impact(
     and band to identify root causes of SLE degradation.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Which SLE metric to analyze
         duration: Hours of data (default 24)
         format: Response format
@@ -426,6 +429,7 @@ async def get_sle_impact(
         -> Use with metric="throughput"
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -516,7 +520,7 @@ async def get_sle_impacted_aps(
     SLE metric failures, helping prioritize troubleshooting.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Which SLE metric to analyze
         duration: Hours of data (default 24)
         limit: Maximum APs to return (default 20)
@@ -533,6 +537,7 @@ async def get_sle_impacted_aps(
         -> Use with metric="time-to-connect"
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 
@@ -595,7 +600,7 @@ async def get_sle_impacted_clients(
     issues with a specific SLE metric.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Which SLE metric to analyze
         duration: Hours of data (default 24)
         limit: Maximum clients to return (default 20)
@@ -612,6 +617,7 @@ async def get_sle_impacted_clients(
         -> Use with metric="roaming"
     """
     try:
+        site_id = await resolve_site_id(site_id)
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)
 

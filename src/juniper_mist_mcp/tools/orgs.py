@@ -1,10 +1,10 @@
 """Organization & site tools for the Juniper Mist MCP server."""
 
-from typing import Literal
+from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import json_tool_result, format_as_markdown, truncate_response
 from ..server import READ_ONLY, mcp
 
@@ -71,7 +71,7 @@ async def list_organizations(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_organization_info(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -81,7 +81,7 @@ async def get_organization_info(
     statistics, and configuration.
 
     Args:
-        org_id: Organization UUID (get from list_organizations)
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var) (get from list_organizations)
         format: Response format - "markdown" for readability, "json" for structured data
 
     Returns:
@@ -96,6 +96,7 @@ async def get_organization_info(
         - If access denied: Check API token permissions
     """
     try:
+        org_id = resolve_org_id(org_id)
         org = await mist_api_request(f"/orgs/{org_id}")
 
         if format == "json":
@@ -108,7 +109,7 @@ async def get_organization_info(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_sites(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -117,7 +118,7 @@ async def list_sites(
     Retrieves all sites (locations) configured in the specified organization.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -132,6 +133,7 @@ async def list_sites(
         - Use list_organizations first if org_id is unknown
     """
     try:
+        org_id = resolve_org_id(org_id)
         sites = await mist_api_request(f"/orgs/{org_id}/sites")
 
         if format == "json":
@@ -173,7 +175,7 @@ async def get_site_info(
     RF settings, network policies, and enabled features.
 
     Args:
-        site_id: Site UUID (get from list_sites)
+        site_id: Site UUID or site name (e.g. "GPCC") (get from list_sites)
         format: Response format - "markdown" for readability, "json" for structured data
 
     Returns:
@@ -188,6 +190,7 @@ async def get_site_info(
         - If access denied: Check API token permissions
     """
     try:
+        site_id = await resolve_site_id(site_id)
         site = await mist_api_request(f"/sites/{site_id}")
 
         if format == "json":
@@ -237,7 +240,7 @@ async def get_site_stats(
     and overall network health metrics.
 
     Args:
-        site_id: Site UUID (get from list_sites)
+        site_id: Site UUID or site name (e.g. "GPCC") (get from list_sites)
         format: Response format
 
     Returns:
@@ -251,6 +254,7 @@ async def get_site_stats(
         - If site not found: Use list_sites to find valid site IDs
     """
     try:
+        site_id = await resolve_site_id(site_id)
         stats = await mist_api_request(f"/sites/{site_id}/stats")
 
         if format == "json":
@@ -290,7 +294,7 @@ async def get_site_stats(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_org_stats_summary(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -300,7 +304,7 @@ async def get_org_stats_summary(
     site health, and key performance indicators.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -318,6 +322,7 @@ async def get_org_stats_summary(
         - May take longer for large organizations
     """
     try:
+        org_id = resolve_org_id(org_id)
         # Get organization stats
         org_stats = await mist_api_request(f"/orgs/{org_id}/stats")
 

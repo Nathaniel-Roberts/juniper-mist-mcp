@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
@@ -22,7 +22,7 @@ async def list_wlans(
     VLANs, and enabled features.
 
     Args:
-        site_id: Site UUID (get from list_sites)
+        site_id: Site UUID or site name (e.g. "GPCC") (get from list_sites)
         format: Response format - "markdown" for readability, "json" for structured data
 
     Returns:
@@ -40,6 +40,7 @@ async def list_wlans(
         - Use list_sites to get valid site_id values
     """
     try:
+        site_id = await resolve_site_id(site_id)
         wlans = await mist_api_request(f"/sites/{site_id}/wlans")
 
         if format == "json":
@@ -90,7 +91,7 @@ async def list_wlans(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def list_org_wlans(
-    org_id: str,
+    org_id: Optional[str] = None,
     format: Literal["json", "markdown"] = "markdown"
 ) -> str | CallToolResult:
     """
@@ -99,7 +100,7 @@ async def list_org_wlans(
     Retrieves organization-level WLAN configurations that can be applied to sites.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         format: Response format
 
     Returns:
@@ -110,6 +111,7 @@ async def list_org_wlans(
         -> Use this tool with the org_id
     """
     try:
+        org_id = resolve_org_id(org_id)
         wlans = await mist_api_request(f"/orgs/{org_id}/wlans")
 
         if format == "json":
@@ -152,7 +154,7 @@ async def get_rf_stats(
     interference levels, noise floor, and client distribution by band.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         band: Filter by frequency band - "24" (2.4GHz), "5" (5GHz), "6" (6GHz), or "all"
         format: Response format
 
@@ -171,6 +173,7 @@ async def get_rf_stats(
         - Returns aggregate site-wide metrics
     """
     try:
+        site_id = await resolve_site_id(site_id)
         # Get AP stats which include RF metrics
         params = {"type": "ap"}
         stats = await mist_api_request(f"/sites/{site_id}/stats/devices", params=params)
@@ -250,7 +253,7 @@ async def get_ap_radio_status(
     power level, bandwidth, and client count per radio.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         ap_mac: Optional AP MAC to filter for specific AP
         band: Filter by frequency band
         format: Response format
@@ -266,6 +269,7 @@ async def get_ap_radio_status(
         -> Use this tool with band="5"
     """
     try:
+        site_id = await resolve_site_id(site_id)
         # Get device stats which includes radio info
         params = {"type": "ap"}
         if ap_mac:
@@ -347,7 +351,7 @@ async def get_rogue_aps(
     the wireless network, which may indicate security threats.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         limit: Maximum rogues to return (default 50)
         format: Response format
 
@@ -366,6 +370,7 @@ async def get_rogue_aps(
         - Requires wireless APs at the site for detection
     """
     try:
+        site_id = await resolve_site_id(site_id)
         params = {"limit": limit}
         rogues = await mist_api_request(f"/sites/{site_id}/insights/rogues", params=params)
 
@@ -420,7 +425,7 @@ async def get_site_insights(
     Retrieves aggregated metrics and analytics for a site over a time period.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         metric: Metric type - "bytes", "num_clients", "num_aps"
         duration: Hours of data to analyze (default 24)
         format: Response format
@@ -436,6 +441,7 @@ async def get_site_insights(
         -> Use this tool with metric="num_clients", duration=168
     """
     try:
+        site_id = await resolve_site_id(site_id)
         # Calculate time range
         end_time = int(time.time())
         start_time = end_time - (duration * 3600)

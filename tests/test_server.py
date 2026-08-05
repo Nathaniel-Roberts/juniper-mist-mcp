@@ -14,6 +14,8 @@ import juniper_mist_mcp as jm
 pytestmark = pytest.mark.anyio
 
 MAP_ID = "1721723f-3c2b-4da3-ae5b-60a3d1267ab3"
+SITE_ID = "2ae0dadf-8cdc-4d3e-b186-262886c77dc5"
+ORG_ID = "94687c7a-bfe5-4bc9-9c52-000000000000"
 
 
 # ----------------------------------------------------------------------------
@@ -100,7 +102,7 @@ async def test_invalid_json_is_reported(mock_api):
 async def test_json_format_is_truncated(mock_api):
     big = [{"mac": f"aa:bb:cc:dd:ee:{i:02x}", "notes": "x" * 500} for i in range(200)]
     mock_api(lambda request: httpx.Response(200, json=big))
-    out = await jm.get_device_stats(org_id="o", site_id="s", format="json")
+    out = await jm.get_device_stats(site_id=SITE_ID, format="json")
     text = out.content[0].text
     assert len(text) < 26000
     assert "truncated" in text
@@ -111,7 +113,7 @@ async def test_json_format_is_truncated(mock_api):
 async def test_json_format_returns_structured_content(mock_api):
     data = [{"mac": "aa:bb:cc:dd:ee:01", "status": "connected"}]
     mock_api(lambda request: httpx.Response(200, json=data))
-    out = await jm.get_device_stats(org_id="o", site_id="s", format="json")
+    out = await jm.get_device_stats(site_id=SITE_ID, format="json")
     # lists are wrapped so structuredContent is always an object
     assert out.structured_content == {"results": data}
     assert "aa:bb:cc:dd:ee:01" in out.content[0].text
@@ -176,7 +178,7 @@ def _map_and_devices_handler(request):
 
 async def test_get_map_info_lists_placed_aps(mock_api):
     mock_api(_map_and_devices_handler)
-    out = await jm.get_map_info(site_id="s", map_id=MAP_ID)
+    out = await jm.get_map_info(site_id=SITE_ID, map_id=MAP_ID)
     assert "Access Points (2)" in out
     assert "Lib-NorthEast" in out and "Lib-West" in out
     assert "OtherFloor-AP" not in out and "Unplaced-AP" not in out
@@ -184,14 +186,14 @@ async def test_get_map_info_lists_placed_aps(mock_api):
 
 async def test_get_map_info_json_includes_placed_aps(mock_api):
     mock_api(_map_and_devices_handler)
-    out = await jm.get_map_info(site_id="s", map_id=MAP_ID, format="json")
+    out = await jm.get_map_info(site_id=SITE_ID, map_id=MAP_ID, format="json")
     data = out.structured_content
     assert [ap["name"] for ap in data["aps"]] == ["Lib-NorthEast", "Lib-West"]
 
 
 async def test_search_clients_by_location_matches_real_fields(mock_api):
     mock_api(_map_and_devices_handler)
-    out = await jm.search_clients_by_location(site_id="s", map_id=MAP_ID)
+    out = await jm.search_clients_by_location(site_id=SITE_ID, map_id=MAP_ID)
     assert "on-floor-laptop" in out
     assert "wrong-floor" not in out
 
@@ -216,7 +218,7 @@ async def test_search_clients_by_location_enriches_hostnames(mock_api):
         return httpx.Response(500, text=f"unexpected path {path}")
 
     mock_api(handler)
-    out = await jm.search_clients_by_location(site_id="s", map_id=MAP_ID)
+    out = await jm.search_clients_by_location(site_id=SITE_ID, map_id=MAP_ID)
     assert "KristyHcBookAir" in out
 
 
@@ -237,14 +239,14 @@ async def test_client_location_history_builds_timeline(mock_api):
                 {"mac": "aa:aa:aa:aa:aa:01", "name": "AP-One"},
                 {"mac": "aa:aa:aa:aa:aa:02", "name": "AP-Two"},
             ])
-        if path.endswith("/sites/s"):
+        if path.endswith(f"/sites/{SITE_ID}"):
             return httpx.Response(200, json={"org_id": "org-1"})
         if "clients/search" in path:
             return httpx.Response(200, json={"results": []})
         return httpx.Response(500, text=f"unexpected path {path}")
 
     mock_api(handler)
-    out = await jm.get_client_location_history(site_id="s", client_mac="DE:AD:BE:EF:00:01")
+    out = await jm.get_client_location_history(site_id=SITE_ID, client_mac="DE:AD:BE:EF:00:01")
     assert "AP-One" in out and "AP-Two" in out
     # moved between two APs -> two timeline rows
     assert out.count("| ") >= 2
@@ -269,3 +271,76 @@ async def test_tool_returns_error_string_not_exception(mock_api):
     out = await jm.list_sites(org_id="nope")
     assert out.startswith("Error listing sites:")
     assert "Resource not found" in out
+
+
+# ----------------------------------------------------------------------------
+# Org defaulting & site name resolution
+# ----------------------------------------------------------------------------
+
+def _sites_handler(request):
+    path = request.url.path
+    if path.endswith(f"/orgs/{ORG_ID}/sites"):
+        return httpx.Response(200, json=[
+            {"id": SITE_ID, "name": "GPCC"},
+            {"id": "0b65abe5-354a-4966-80e1-000000000001", "name": "BCS"},
+            {"id": "0b65abe5-354a-4966-80e1-000000000002", "name": "BCS Annex"},
+        ])
+    if path.endswith(f"/sites/{SITE_ID}/stats"):
+        return httpx.Response(200, json={"num_clients": 42})
+    return httpx.Response(500, text=f"unexpected path {path}")
+
+
+async def test_site_name_resolves_via_org_sites(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    mock_api(_sites_handler)
+    out = await jm.get_site_stats(site_id="gpcc")
+    assert "42" in out
+
+
+async def test_ambiguous_site_name_is_an_error(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    mock_api(_sites_handler)
+    out = await jm.get_site_stats(site_id="BC")
+    assert "ambiguous" in out and "BCS" in out
+
+
+async def test_unknown_site_name_lists_candidates(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    mock_api(_sites_handler)
+    out = await jm.get_site_stats(site_id="Hogwarts")
+    assert "No site named" in out and "GPCC" in out
+
+
+async def test_site_list_is_cached(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    calls = []
+
+    def handler(request):
+        if request.url.path.endswith("/sites"):
+            calls.append(1)
+        return _sites_handler(request)
+
+    mock_api(handler)
+    await jm.get_site_stats(site_id="GPCC")
+    await jm.get_site_stats(site_id="GPCC")
+    assert len(calls) == 1
+
+
+async def test_org_id_defaults_from_env(mock_api, monkeypatch):
+    monkeypatch.setenv("MIST_ORG_ID", ORG_ID)
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        return httpx.Response(200, json=[])
+
+    mock_api(handler)
+    await jm.list_sites()
+    assert seen["path"].endswith(f"/orgs/{ORG_ID}/sites")
+
+
+async def test_missing_org_id_gives_actionable_error(mock_api, monkeypatch):
+    monkeypatch.delenv("MIST_ORG_ID", raising=False)
+    mock_api(lambda request: httpx.Response(500))
+    out = await jm.list_sites()
+    assert "MIST_ORG_ID" in out

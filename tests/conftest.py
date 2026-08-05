@@ -37,3 +37,4 @@ def mock_api():
 
     yield install
     jm_api._http_client = None
+    jm_api._sites_cache.clear()

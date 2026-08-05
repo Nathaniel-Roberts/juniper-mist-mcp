@@ -4,14 +4,14 @@ from typing import Literal, Optional
 
 from mcp.types import CallToolResult
 
-from ..api import mist_api_request
+from ..api import mist_api_request, resolve_org_id, resolve_site_id
 from ..formatting import format_timestamp, json_tool_result, truncate_response
 from ..server import READ_ONLY, mcp
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_inventory(
-    org_id: str,
+    org_id: Optional[str] = None,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     limit: int = 100,
     format: Literal["json", "markdown"] = "markdown"
@@ -23,7 +23,7 @@ async def get_device_inventory(
     with their serial numbers, models, MAC addresses, and claim status.
 
     Args:
-        org_id: Organization UUID
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         device_type: Filter by device type - "ap" (access points), "switch", "gateway", or "all"
         limit: Maximum number of devices to return (1-1000, default 100)
         format: Response format
@@ -40,6 +40,7 @@ async def get_device_inventory(
         - Starting 2026, responses will be paginated (max 1000 per request)
     """
     try:
+        org_id = resolve_org_id(org_id)
         params = {"limit": min(limit, 1000)}
         if device_type != "all":
             params["type"] = device_type
@@ -90,7 +91,6 @@ async def get_device_inventory(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def get_device_stats(
-    org_id: str,
     site_id: str,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     status: Literal["connected", "disconnected", "all"] = "all",
@@ -103,8 +103,7 @@ async def get_device_stats(
     Retrieves current device status, uptime, version, client count, and performance metrics.
 
     Args:
-        org_id: Organization UUID
-        site_id: Site UUID to filter by site
+        site_id: Site UUID or site name (e.g. "GPCC")
         device_type: Filter by device type
         status: Filter by connection status
         limit: Maximum devices to return (1-1000)
@@ -122,6 +121,7 @@ async def get_device_stats(
         - Use list_sites to get valid site_id values
     """
     try:
+        site_id = await resolve_site_id(site_id)
         endpoint = f"/sites/{site_id}/stats/devices"
         params = {"limit": min(limit, 1000)}
 
@@ -166,8 +166,8 @@ async def get_device_stats(
 
 @mcp.tool(annotations=READ_ONLY, structured_output=False)
 async def search_organization_devices(
-    org_id: str,
     search_term: str,
+    org_id: Optional[str] = None,
     device_type: Literal["ap", "switch", "gateway", "all"] = "all",
     limit: int = 50,
     format: Literal["json", "markdown"] = "markdown"
@@ -178,8 +178,8 @@ async def search_organization_devices(
     Searches across all devices in an organization to find matches.
 
     Args:
-        org_id: Organization UUID
         search_term: Search string (name, MAC, serial, model)
+        org_id: Organization UUID (optional; defaults to the MIST_ORG_ID env var)
         device_type: Filter by device type
         limit: Maximum results to return
         format: Response format
@@ -199,6 +199,7 @@ async def search_organization_devices(
         - Search is case-insensitive
     """
     try:
+        org_id = resolve_org_id(org_id)
         # Normalize search term for MAC address matching
         search_normalized = search_term.lower().replace("-", ":").replace(".", ":")
 
@@ -319,7 +320,7 @@ async def get_device_config(
     network settings, ports, radio config, and management settings.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         device_id: Device UUID (not MAC address - get from device inventory/stats)
         format: Response format
 
@@ -335,6 +336,7 @@ async def get_device_config(
         - Use search_organization_devices to find device IDs
     """
     try:
+        site_id = await resolve_site_id(site_id)
         config = await mist_api_request(f"/sites/{site_id}/devices/{device_id}")
 
         if format == "json":
@@ -394,7 +396,7 @@ async def get_device_events(
     reboots, and errors.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         device_mac: Optional device MAC to filter events for specific device
         device_type: Filter by device type
         limit: Maximum events to return (default 50)
@@ -414,6 +416,7 @@ async def get_device_events(
         - Returns empty if no recent events
     """
     try:
+        site_id = await resolve_site_id(site_id)
         params = {"limit": limit}
         if device_mac:
             params["mac"] = device_mac
@@ -473,7 +476,7 @@ async def get_switch_port_stats(
     link status, speed/duplex, VLAN, PoE status, and connected devices.
 
     Args:
-        site_id: Site UUID
+        site_id: Site UUID or site name (e.g. "GPCC")
         switch_mac: Optional switch MAC address to filter by specific switch
         limit: Maximum ports to return (default 100)
         format: Response format
@@ -492,6 +495,7 @@ async def get_switch_port_stats(
         - If no ports found: Site may not have switches or they may be offline
     """
     try:
+        site_id = await resolve_site_id(site_id)
         params = {"limit": limit}
         if switch_mac:
             params["mac"] = switch_mac
