@@ -14,7 +14,7 @@ import os
 import json
 from datetime import datetime
 from typing import Literal, Optional, Any
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 import httpx
 from dotenv import load_dotenv
 
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize MCP server
-mcp = FastMCP("Juniper Mist")
+mcp = MCPServer("Juniper Mist")
 
 # Configuration
 MIST_API_TOKEN = os.getenv("MIST_API_TOKEN")
