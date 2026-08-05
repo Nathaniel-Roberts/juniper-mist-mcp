@@ -151,8 +151,9 @@ async def mist_api_request(
 
         if response.status_code == 403:
             raise MistAPIError(
-                "Access forbidden. Your API token may not have permission for this resource. "
-                "Check token permissions in the Mist dashboard."
+                "Access forbidden. The ID may not exist in your organization (Mist returns "
+                "403 rather than 404 for IDs outside your org), or your API token may not "
+                "have permission for this resource."
             )
 
         if response.status_code == 404:
@@ -3785,6 +3786,25 @@ async def get_sle_impacted_clients(
 # Maps & Floor Plans Tools
 # ============================================================================
 
+
+async def _get_map_aps(site_id: str, map_id: str, map_info: Optional[dict] = None) -> list[dict]:
+    """
+    Get the AP devices placed on a map.
+
+    The Mist map object does not embed AP placements; each placed AP's
+    device object carries the map_id (plus x/y/height). Fetch the site's
+    AP devices and filter by map.
+    """
+    devices = await mist_api_request(
+        f"/sites/{site_id}/devices", params={"type": "ap", "limit": 1000}
+    )
+    placed = [d for d in devices if d.get('map_id') == map_id]
+    # Fallback in case an API variant does embed aps in the map object
+    if not placed and map_info and map_info.get('aps'):
+        placed = map_info['aps']
+    return placed
+
+
 @mcp.tool(annotations=READ_ONLY)
 async def list_site_maps(
     site_id: str,
@@ -3931,9 +3951,9 @@ async def get_map_info(
             latlng = map_info['latlng']
             result += f"- **Geo Location:** {latlng.get('lat')}, {latlng.get('lng')}\n"
 
-        # AP positions
-        if map_info.get('aps'):
-            aps = map_info['aps']
+        # AP positions (placements live on the device objects, not the map)
+        aps = await _get_map_aps(site_id, map_id, map_info)
+        if aps:
             result += f"\n## Access Points ({len(aps)})\n\n"
             result += "| Name | MAC | X (m) | Y (m) | Height |\n"
             result += "|------|-----|-------|-------|--------|\n"
@@ -3941,8 +3961,8 @@ async def get_map_info(
             for ap in aps[:30]:
                 ap_name = ap.get('name', 'Unknown')
                 ap_mac = ap.get('mac', 'N/A')
-                x = ap.get('x', 0)
-                y = ap.get('y', 0)
+                x = ap.get('x') or 0
+                y = ap.get('y') or 0
                 height_val = ap.get('height', 'N/A')
                 result += f"| {ap_name} | `{ap_mac}` | {x:.1f} | {y:.1f} | {height_val}m |\n"
 
@@ -4777,10 +4797,11 @@ async def search_clients_by_location(
     """
 
     try:
-        # Get map and its APs
+        # Get map and its APs (placements live on the device objects, not the map)
         map_info = await mist_api_request(f"/sites/{site_id}/maps/{map_id}")
         map_name = map_info.get('name', 'Map')
-        aps = {ap.get('mac', '').lower(): ap.get('name', 'AP') for ap in map_info.get('aps', []) if ap.get('mac')}
+        placed = await _get_map_aps(site_id, map_id, map_info)
+        aps = {ap.get('mac', '').lower(): ap.get('name', 'AP') for ap in placed if ap.get('mac')}
 
         if not aps:
             return f"No APs on {map_name}."
