@@ -489,3 +489,17 @@ async def test_troubleshoot_client_unknown_client(mock_api, monkeypatch):
     out = await jm.troubleshoot_client(client_mac="00:00:00:00:00:99")
     assert "not found" in out
     assert "Error troubleshooting" not in out
+
+
+async def test_device_stats_always_sends_type(mock_api):
+    # the site stats endpoint defaults type to "ap" server-side, which
+    # silently dropped switches/gateways from device_type="all" results
+    seen = {}
+
+    def handler(request):
+        seen["type"] = request.url.params.get("type")
+        return httpx.Response(200, json=[])
+
+    mock_api(handler)
+    await jm.get_device_stats(site_id=SITE_ID)
+    assert seen["type"] == "all"

@@ -284,10 +284,9 @@ async def get_device_stats(
     try:
         site_id = await resolve_site_id(site_id)
         endpoint = f"/sites/{site_id}/stats/devices"
-        params = {"limit": min(limit, 1000)}
+        # The API's type parameter defaults to "ap", so always send it
+        params = {"type": device_type, "limit": min(limit, 1000)}
 
-        if device_type != "all":
-            params["type"] = device_type
         if status != "all":
             params["status"] = status
 
