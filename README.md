@@ -88,14 +88,17 @@ claude mcp list
 
 ## Available Tools
 
-### Organization & Sites
+All 47 tools are read-only (each carries the MCP `readOnlyHint` annotation); nothing here can change your network.
+
+### Organizations & Sites
 - `list_organizations` - See all your organizations
 - `get_organization_info` - Get details about a specific org
+- `get_org_stats_summary` - Organization-wide health summary
 - `list_sites` - List all sites in an organization
 - `get_site_info` - Get site configuration details
 - `get_site_stats` - Get site health metrics
 
-### Device Management
+### Devices
 - `get_device_inventory` - View all devices in your inventory
 - `get_device_stats` - Get real-time device statistics
 - `get_device_config` - View device configuration
@@ -103,33 +106,51 @@ claude mcp list
 - `search_organization_devices` - Find devices by name, MAC, serial, or model
 - `get_switch_port_stats` - Get switch port status and traffic
 
-### Network Monitoring
-- `get_alarms` - View active alerts and alarms
-- `get_marvis_actions` - Get Marvis AI recommendations
-- `get_org_stats_summary` - Organization-wide health summary
-- `get_rf_stats` - RF environment statistics
-- `get_site_wan_stats` - WAN link status
-- `get_rogue_aps` - Detect rogue access points
-
-### Client & Wireless
-- `get_client_stats` - Connected client information
+### Wireless & RF
 - `list_wlans` - Site wireless networks
 - `list_org_wlans` - Organization WLAN templates
+- `get_rf_stats` - RF environment statistics
+- `get_ap_radio_status` - Channels, power, and clients per AP radio
+- `get_rogue_aps` - Detect rogue access points
+- `get_site_insights` - Site traffic/client analytics over time
 
-### NAC & Authentication Troubleshooting
-- `search_client_events` - Search wireless client events (auth failures, DHCP issues, roaming)
+### Monitoring
+- `get_alarms` - View active alerts and alarms
+- `get_marvis_actions` - Get Marvis AI recommendations
+- `get_site_wan_stats` - WAN link status
+
+### Client Troubleshooting
+- `get_client_stats` - Connected client information
+- `get_client_by_mac` - Look up client details by MAC address
+- `search_client_events` - Wireless client events (auth failures, DHCP issues, roaming)
 - `get_client_session_history` - Detailed session history for a client
+- `search_wired_client_events` - Wired port authentication events
+
+### NAC & Authentication
 - `search_nac_client_events` - Search 802.1X/RADIUS authentication events
 - `get_nac_rules` - View NAC policy rules
 - `get_nac_tags` - View NAC tags/roles
 - `get_org_radius_config` - RADIUS server configuration
 - `get_org_idps` - Identity provider (IdP) configuration
-- `search_wired_client_events` - Wired port authentication events
-- `get_client_by_mac` - Look up client details by MAC address
 - `get_nac_portal_logs` - Guest/sponsor portal logs
 
-### Audit
-- `get_audit_logs` - Administrative change logs
+### SLE (Service Level Expectations)
+- `get_sle_metrics` - List available SLE metrics
+- `get_sle_summary` - Success rate for a metric
+- `get_sle_histogram` - Metric performance over time
+- `get_sle_impact` - What's causing metric failures
+- `get_sle_impacted_aps` - APs most affected by failures
+- `get_sle_impacted_clients` - Clients most affected by failures
+
+### Maps, Assets & Location
+- `list_site_maps` - Floor plans configured at a site
+- `get_map_info` - Map details including AP placements
+- `list_zones` - Location zones on floor plans
+- `list_assets` / `search_assets` - BLE asset tags
+- `get_asset_stats` - Real-time asset locations
+- `get_discovered_assets` - Detected but unassigned BLE devices
+- `get_client_location_history` - Where a device has been (AP timeline)
+- `search_clients_by_location` - Who has been on a specific floor
 
 ## Example Queries
 
@@ -173,7 +194,26 @@ claude mcp list
 ## Requirements
 
 - Python 3.10 or higher
+- MCP Python SDK 2.0 or higher (installed automatically)
 - A Juniper Mist account with API access
+
+## Development
+
+```bash
+git clone https://github.com/Nathaniel-Roberts/juniper-mist-mcp
+cd juniper-mist-mcp
+
+# Run tests (no Mist account needed; HTTP is mocked)
+uv run --group dev pytest
+
+# Lint
+uv run --group dev ruff check .
+```
+
+Source layout: `src/juniper_mist_mcp/` contains `api.py` (HTTP client),
+`server.py` (MCP server instance), `formatting.py` (markdown helpers), and
+`tools/` with one module per tool group. See `CLAUDE.md` for conventions
+when adding tools.
 
 ## Security Notes
 
